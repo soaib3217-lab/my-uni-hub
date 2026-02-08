@@ -7,8 +7,14 @@ import {
   Trash2, Plus, Upload, Lock, Unlock, FileText, Send, X, 
   ChevronRight, ChevronDown, Folder, Sparkles, MessageSquare, 
   Minimize2, Loader2, GraduationCap, Menu, Search, FolderPlus, 
-  File, User
+  File, User, Lightbulb
 } from 'lucide-react';
+
+// --- ➕ NEW IMPORTS FOR MATH RENDERING ---
+import ReactMarkdown from 'react-markdown';
+import remarkMath from 'remark-math';
+import rehypeKatex from 'rehype-katex';
+import 'katex/dist/katex.min.css'; // 👈 IMPORTANT: Styles for the math
 
 // --- CONFIGURATION ---
 const SUPABASE_URL = "https://cgwhjwpqemlbpvspcqtc.supabase.co";
@@ -119,6 +125,7 @@ const VALID_USERS = [
     { id: "B240304082", name: "NOWSHIN FAREHA TIABA" }
 ];
 
+
 // --- INITIALIZE CLIENTS ---
 const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
 const genAI = new GoogleGenerativeAI(GEMINI_KEY);
@@ -164,6 +171,7 @@ export default function Home() {
   const [chatInput, setChatInput] = useState("");
   const [chatHistory, setChatHistory] = useState<{role: string, text: string}[]>([]);
   const [isAiLoading, setIsAiLoading] = useState(false);
+  const [suggestedQuestions, setSuggestedQuestions] = useState<string[]>([]);
   const chatScrollRef = useRef<HTMLDivElement>(null);
 
   // Admin & User States
@@ -192,7 +200,28 @@ export default function Home() {
   
   useEffect(() => {
     if (chatScrollRef.current) chatScrollRef.current.scrollTop = chatScrollRef.current.scrollHeight;
-  }, [chatHistory, isAiLoading]);
+  }, [chatHistory, isAiLoading, suggestedQuestions]);
+
+  useEffect(() => {
+    if (selectedFile) {
+        setChatHistory([]); 
+        setSuggestedQuestions([]); 
+        generateSuggestions(selectedFile.title);
+    }
+  }, [selectedFile]);
+
+  async function generateSuggestions(title: string) {
+      try {
+          const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
+          const prompt = `I am studying "${title}". Generate 3 short, curious questions I might ask a tutor. Return ONLY the questions separated by pipes (|).`;
+          const result = await model.generateContent(prompt);
+          const response = await result.response;
+          const questions = response.text().split('|').slice(0, 3);
+          setSuggestedQuestions(questions);
+      } catch (e) {
+          setSuggestedQuestions(["Summarize this", "Explain key concepts", "Quiz me"]);
+      }
+  }
 
   async function fetchData() {
     const { data: folderData } = await supabase.from('folders').select('*').order('code', { ascending: true });
@@ -202,8 +231,6 @@ export default function Home() {
     if (fileData) setFiles(fileData);
   }
 
-  // --- ACTIONS ---
-
   function handleLogin() {
     const user = VALID_USERS.find(u => u.id === loginIdInput);
     if (user) {
@@ -211,14 +238,12 @@ export default function Home() {
         setShowAdminModal(false);
         setLoginIdInput("");
     } else {
-        alert("Invalid ID Access Denied.");
+        alert("ID Access Denied.");
     }
   }
 
   function handleLogout() {
-      if(confirm("Are you sure you want to logout?")) {
-          setCurrentUser(null);
-      }
+      if(confirm("Logout?")) setCurrentUser(null);
   }
 
   async function handleCreateFolder() {
@@ -268,7 +293,7 @@ export default function Home() {
       year: targetYear, 
       semester: targetSemester, 
       pdf_url: finalUrl,
-      uploader: currentUser.name // ✅ SAVING UPLOADER NAME
+      uploader: currentUser.name
     });
 
     if (dbError) alert("Database Error: " + dbError.message);
@@ -289,42 +314,43 @@ export default function Home() {
     setSelectedFile(null);
   }
 
-  async function handleChat() {
-    if (!chatInput) return;
-    const userMsg = chatInput;
+  async function handleChat(overrideInput?: string) {
+    const messageToSend = overrideInput || chatInput;
+    if (!messageToSend) return;
+    
     setChatInput("");
-    setChatHistory(prev => [...prev, { role: "user", text: userMsg }]);
+    setChatHistory(prev => [...prev, { role: "user", text: messageToSend }]);
     setIsAiLoading(true);
 
     try {
       const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
-      let promptParts: any[] = [userMsg];
+      let promptParts: any[] = [messageToSend];
       
       if (selectedFile?.pdf_url && selectedFile.pdf_url.toLowerCase().endsWith('.pdf')) {
          try {
              const pdfPart = await fileToGenerativePart(selectedFile.pdf_url);
              promptParts = [
-                { text: `You are a tutor. Answer based on this document.` },
+                // 🧠 Instructing AI to use Latex for math
+                { text: `You are an expert professor. Answer clearly. If using math, use LaTeX format (e.g., $x^2$).` },
                 pdfPart,
-                { text: userMsg }
+                { text: messageToSend }
              ];
          } catch (e) {
-             promptParts = [{ text: `I cannot read this file directly. Question: ${userMsg}` }];
+             promptParts = [{ text: `I cannot read this file directly. Question: ${messageToSend}` }];
          }
       } else {
-         promptParts = [{ text: `Context: ${selectedFile?.title}. Question: ${userMsg}` }];
+         promptParts = [{ text: `Context: ${selectedFile?.title}. Question: ${messageToSend}` }];
       }
 
       const result = await model.generateContent(promptParts);
       const response = await result.response;
       setChatHistory(prev => [...prev, { role: "bot", text: response.text() }]);
     } catch (error) {
-      setChatHistory(prev => [...prev, { role: "bot", text: "⚠️ AI Error." }]);
+      setChatHistory(prev => [...prev, { role: "bot", text: "⚠️ AI Error. Try again." }]);
     }
     setIsAiLoading(false);
   }
 
-  // --- TOGGLES ---
   const toggleState = (setter: any, val: string) => {
     setter((prev: string[]) => prev.includes(val) ? prev.filter(x => x !== val) : [...prev, val]);
   };
@@ -359,12 +385,11 @@ export default function Home() {
                 <div className="w-8 h-8 rounded-lg bg-indigo-600 flex items-center justify-center shadow-lg shadow-indigo-500/30">
                   <GraduationCap size={18} className="text-white" />
                 </div>
-                <h1 className="text-lg font-bold text-white tracking-wide">UniHub</h1>
+                <h1 className="text-lg font-bold text-white tracking-wide">Stat Notes</h1>
               </div>
               <button className="md:hidden text-gray-400" onClick={() => setIsMobileMenuOpen(false)}><X size={20}/></button>
           </div>
           
-          {/* USER BADGE */}
           {currentUser && (
               <div className="flex items-center gap-3 bg-indigo-500/10 border border-indigo-500/20 p-2 rounded-lg">
                   <div className="w-8 h-8 rounded-full bg-indigo-500 flex items-center justify-center text-xs font-bold text-white">
@@ -378,7 +403,6 @@ export default function Home() {
           )}
         </div>
 
-        {/* SEARCH BAR */}
         <div className="p-4 pb-0">
             <div className="bg-[#27272a] rounded-lg flex items-center px-3 py-2 border border-white/5">
                 <Search size={14} className="text-gray-500 mr-2"/>
@@ -386,7 +410,6 @@ export default function Home() {
             </div>
         </div>
         
-        {/* FOLDER TREE */}
         <div className="flex-1 overflow-y-auto p-3 space-y-1 custom-scrollbar">
           {structure.map((yData) => (
             <div key={yData.year}>
@@ -463,7 +486,6 @@ export default function Home() {
           ))}
         </div>
 
-        {/* ADMIN FOOTER */}
         <div className="p-4 border-t border-white/10 bg-[#0e0e0e] flex gap-2">
             <button onClick={() => currentUser ? handleLogout() : setShowAdminModal(true)} className={`p-2 rounded-lg transition ${currentUser ? 'text-red-400 hover:bg-red-500/10' : 'text-gray-500 hover:text-white bg-white/5'}`}>
                 {currentUser ? <Lock size={16}/> : <Unlock size={16}/>}
@@ -480,7 +502,7 @@ export default function Home() {
       {/* MAIN AREA */}
       <div className="flex-1 flex flex-col relative bg-[#09090b]">
         <div className="md:hidden h-14 border-b border-white/10 flex items-center px-4 justify-between bg-[#121212]">
-            <span className="font-bold text-white">UniHub</span>
+            <span className="font-bold text-white">Stat Notes</span>
             <button onClick={() => setIsMobileMenuOpen(true)} className="text-gray-300"><Menu size={24}/></button>
         </div>
 
@@ -511,14 +533,56 @@ export default function Home() {
                               <div className="flex items-center gap-2"><Sparkles size={16} className="text-indigo-400" /><span className="text-sm font-bold text-gray-200">AI Tutor</span></div>
                               <button onClick={() => setIsAiOpen(false)} className="text-gray-500 hover:text-white"><Minimize2 size={14}/></button>
                            </div>
-                           <div className="flex-1 overflow-y-auto p-4 space-y-4 custom-scrollbar bg-[#09090b]" ref={chatScrollRef}>
+                           <div className="flex-1 overflow-y-auto p-4 custom-scrollbar bg-[#09090b] flex flex-col" ref={chatScrollRef}>
+                              
+                              {/* WELCOME SCREEN */}
+                              {chatHistory.length === 0 && (
+                                <div className="flex-1 flex flex-col items-center justify-center text-center opacity-70 p-4">
+                                    <div className="w-16 h-16 bg-indigo-600/10 rounded-full flex items-center justify-center mb-4">
+                                        <Sparkles size={32} className="text-indigo-400" />
+                                    </div>
+                                    <h3 className="text-lg font-bold text-white mb-2">Ready to Help!</h3>
+                                    <p className="text-xs text-gray-400 mb-6">I have read <b>{selectedFile.title}</b>. Ask me anything or click a suggestion below.</p>
+                                    
+                                    <div className="flex flex-col gap-2 w-full">
+                                        {suggestedQuestions.map((q, i) => (
+                                            <button 
+                                                key={i} 
+                                                onClick={() => handleChat(q)}
+                                                className="text-left text-xs bg-[#1e1e22] hover:bg-[#27272a] text-indigo-300 p-3 rounded-xl border border-white/5 transition flex items-center gap-2 group"
+                                            >
+                                                <Lightbulb size={14} className="text-yellow-500/50 group-hover:text-yellow-500 transition"/> 
+                                                {q}
+                                            </button>
+                                        ))}
+                                        {suggestedQuestions.length === 0 && (
+                                            <div className="flex justify-center"><Loader2 size={16} className="animate-spin text-gray-600"/></div>
+                                        )}
+                                    </div>
+                                </div>
+                              )}
+
                               {chatHistory.map((msg, i) => (
-                                 <div key={i} className={`p-3 rounded-xl text-xs leading-relaxed max-w-[90%] ${msg.role === 'user' ? 'bg-indigo-600 text-white ml-auto' : 'bg-[#1e1e22] text-gray-300 mr-auto border border-white/5'}`}>{msg.text}</div>
+                                 <div key={i} className={`mb-4 p-3 rounded-2xl text-sm leading-relaxed max-w-[90%] ${msg.role === 'user' ? 'bg-indigo-600 text-white ml-auto rounded-br-none' : 'bg-[#1e1e22] text-gray-200 mr-auto border border-white/5 rounded-bl-none'}`}>
+                                    {/* 💥 HERE IS THE MAGIC: RENDERING MARKDOWN & MATH 💥 */}
+                                   <div className="prose prose-invert max-w-none text-sm break-words">
+    <ReactMarkdown
+        remarkPlugins={[remarkMath]}
+        rehypePlugins={[rehypeKatex]}
+        components={{
+            p: ({node, ...props}) => <p className="mb-2 last:mb-0" {...props} />,
+            a: ({node, ...props}) => <a className="text-blue-400 hover:underline" {...props} />
+        }}
+    >
+        {msg.text}
+    </ReactMarkdown>
+</div>
+                                 </div>
                               ))}
-                              {isAiLoading && <div className="flex items-center gap-2 text-xs text-gray-500 pl-2"><Loader2 size={12} className="animate-spin text-indigo-500" /> Analyzing...</div>}
+                              {isAiLoading && <div className="flex items-center gap-2 text-xs text-gray-500 pl-2 mb-4"><Loader2 size={12} className="animate-spin text-indigo-500" /> Thinking...</div>}
                            </div>
                            <div className="p-3 border-t border-white/10 bg-[#18181b]">
-                              <div className="flex items-center gap-2 bg-[#09090b] border border-white/10 rounded-xl px-2 py-1"><input value={chatInput} onChange={(e) => setChatInput(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleChat()} placeholder="Ask AI..." className="flex-1 bg-transparent border-none text-xs text-white p-2 outline-none"/><button onClick={handleChat} className="bg-indigo-600 p-1.5 rounded-lg text-white"><Send size={14}/></button></div>
+                              <div className="flex items-center gap-2 bg-[#09090b] border border-white/10 rounded-xl px-2 py-1"><input value={chatInput} onChange={(e) => setChatInput(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleChat()} placeholder="Ask AI..." className="flex-1 bg-transparent border-none text-sm text-white p-2 outline-none"/><button onClick={() => handleChat()} className="bg-indigo-600 p-2 rounded-lg text-white hover:bg-indigo-500 transition"><Send size={16}/></button></div>
                            </div>
                         </motion.div>
                     )}
@@ -539,8 +603,8 @@ export default function Home() {
         {showAdminModal && (
           <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[60] flex items-center justify-center">
             <div className="bg-[#18181b] border border-white/10 p-8 rounded-2xl w-80 text-center">
-              <h3 className="text-white font-bold mb-4">Admin Access</h3>
-              <input type="text" placeholder="Enter Your ID" className="w-full bg-black/50 border border-white/10 p-3 rounded-xl mb-4 text-center text-white outline-none" value={loginIdInput} onChange={(e) => setLoginIdInput(e.target.value)}/>
+              <h3 className="text-white font-bold mb-4">Admin Login</h3>
+              <input type="password" placeholder="PIN" className="w-full bg-black/50 border border-white/10 p-3 rounded-xl mb-4 text-center text-white tracking-[0.5em] outline-none" value={adminPinInput} onChange={(e) => setAdminPinInput(e.target.value)}/>
               <div className="flex gap-2"><button onClick={() => setShowAdminModal(false)} className="flex-1 py-2 rounded-lg bg-white/5 text-gray-400 text-xs">Cancel</button><button onClick={handleLogin} className="flex-1 py-2 rounded-lg bg-indigo-600 text-white text-xs font-bold">Login</button></div>
             </div>
           </div>
