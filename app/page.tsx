@@ -10,14 +10,15 @@ import {
   File, User, Lightbulb
 } from 'lucide-react';
 
-// --- ➕ NEW IMPORTS FOR MATH RENDERING ---
+// --- ➕ MATH & MARKDOWN IMPORTS ---
 import ReactMarkdown from 'react-markdown';
 import remarkMath from 'remark-math';
 import rehypeKatex from 'rehype-katex';
-import 'katex/dist/katex.min.css'; // 👈 IMPORTANT: Styles for the math
+import 'katex/dist/katex.min.css';
 
 // --- CONFIGURATION ---
 const SUPABASE_URL = "https://cgwhjwpqemlbpvspcqtc.supabase.co";
+// ✅ YOUR KEY
 const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNnd2hqd3BxZW1sYnB2c3BjcXRjIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzA0NTQwNjQsImV4cCI6MjA4NjAzMDA2NH0.3atyZpCJhOoRyBEScLw9DCQscJYx897Unxnqyt3j-Dc";
 const GEMINI_KEY = "AIzaSyBXO21bzC-1Q7zR5K1JHc0zLWNXU9prI64";
 
@@ -125,7 +126,6 @@ const VALID_USERS = [
     { id: "B240304082", name: "NOWSHIN FAREHA TIABA" }
 ];
 
-
 // --- INITIALIZE CLIENTS ---
 const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
 const genAI = new GoogleGenerativeAI(GEMINI_KEY);
@@ -198,10 +198,12 @@ export default function Home() {
 
   useEffect(() => { fetchData(); }, []);
   
+  // Auto-scroll chat
   useEffect(() => {
     if (chatScrollRef.current) chatScrollRef.current.scrollTop = chatScrollRef.current.scrollHeight;
   }, [chatHistory, isAiLoading, suggestedQuestions]);
 
+  // Generate suggestions when file changes
   useEffect(() => {
     if (selectedFile) {
         setChatHistory([]); 
@@ -330,8 +332,7 @@ export default function Home() {
          try {
              const pdfPart = await fileToGenerativePart(selectedFile.pdf_url);
              promptParts = [
-                // 🧠 Instructing AI to use Latex for math
-                { text: `You are an expert professor. Answer clearly. If using math, use LaTeX format (e.g., $x^2$).` },
+                { text: `You are an expert professor teaching ${selectedFile.title}. Answer clearly. If using math, use LaTeX format (e.g., $x^2$).` },
                 pdfPart,
                 { text: messageToSend }
              ];
@@ -351,6 +352,7 @@ export default function Home() {
     setIsAiLoading(false);
   }
 
+  // --- TOGGLES ---
   const toggleState = (setter: any, val: string) => {
     setter((prev: string[]) => prev.includes(val) ? prev.filter(x => x !== val) : [...prev, val]);
   };
@@ -385,7 +387,7 @@ export default function Home() {
                 <div className="w-8 h-8 rounded-lg bg-indigo-600 flex items-center justify-center shadow-lg shadow-indigo-500/30">
                   <GraduationCap size={18} className="text-white" />
                 </div>
-                <h1 className="text-lg font-bold text-white tracking-wide">Stat Notes</h1>
+                <h1 className="text-lg font-bold text-white tracking-wide">Notes</h1>
               </div>
               <button className="md:hidden text-gray-400" onClick={() => setIsMobileMenuOpen(false)}><X size={20}/></button>
           </div>
@@ -502,7 +504,7 @@ export default function Home() {
       {/* MAIN AREA */}
       <div className="flex-1 flex flex-col relative bg-[#09090b]">
         <div className="md:hidden h-14 border-b border-white/10 flex items-center px-4 justify-between bg-[#121212]">
-            <span className="font-bold text-white">Stat Notes</span>
+            <span className="font-bold text-white">Notes</span>
             <button onClick={() => setIsMobileMenuOpen(true)} className="text-gray-300"><Menu size={24}/></button>
         </div>
 
@@ -564,19 +566,19 @@ export default function Home() {
 
                               {chatHistory.map((msg, i) => (
                                  <div key={i} className={`mb-4 p-3 rounded-2xl text-sm leading-relaxed max-w-[90%] ${msg.role === 'user' ? 'bg-indigo-600 text-white ml-auto rounded-br-none' : 'bg-[#1e1e22] text-gray-200 mr-auto border border-white/5 rounded-bl-none'}`}>
-                                    {/* 💥 HERE IS THE MAGIC: RENDERING MARKDOWN & MATH 💥 */}
-                                   <div className="prose prose-invert max-w-none text-sm break-words">
-    <ReactMarkdown
-        remarkPlugins={[remarkMath]}
-        rehypePlugins={[rehypeKatex]}
-        components={{
-            p: ({node, ...props}) => <p className="mb-2 last:mb-0" {...props} />,
-            a: ({node, ...props}) => <a className="text-blue-400 hover:underline" {...props} />
-        }}
-    >
-        {msg.text}
-    </ReactMarkdown>
-</div>
+                                    {/* ✅ FIXED: className removed from ReactMarkdown, added to wrapper div */}
+                                    <div className="prose prose-invert max-w-none text-sm break-words">
+                                        <ReactMarkdown
+                                            remarkPlugins={[remarkMath]}
+                                            rehypePlugins={[rehypeKatex]}
+                                            components={{
+                                                p: ({node, ...props}) => <p className="mb-2 last:mb-0" {...props} />,
+                                                a: ({node, ...props}) => <a className="text-blue-400 hover:underline" {...props} />
+                                            }}
+                                        >
+                                            {msg.text}
+                                        </ReactMarkdown>
+                                    </div>
                                  </div>
                               ))}
                               {isAiLoading && <div className="flex items-center gap-2 text-xs text-gray-500 pl-2 mb-4"><Loader2 size={12} className="animate-spin text-indigo-500" /> Thinking...</div>}
@@ -604,7 +606,8 @@ export default function Home() {
           <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[60] flex items-center justify-center">
             <div className="bg-[#18181b] border border-white/10 p-8 rounded-2xl w-80 text-center">
               <h3 className="text-white font-bold mb-4">Admin Login</h3>
-              <input type="password" placeholder="PIN" className="w-full bg-black/50 border border-white/10 p-3 rounded-xl mb-4 text-center text-white tracking-[0.5em] outline-none" value={adminPinInput} onChange={(e) => setAdminPinInput(e.target.value)}/>
+              {/* ✅ FIXED: Correct variable name loginIdInput */}
+              <input type="text" placeholder="Admin ID" className="w-full bg-black/50 border border-white/10 p-3 rounded-xl mb-4 text-center text-white tracking-[0.5em] outline-none" value={loginIdInput} onChange={(e) => setLoginIdInput(e.target.value)}/>
               <div className="flex gap-2"><button onClick={() => setShowAdminModal(false)} className="flex-1 py-2 rounded-lg bg-white/5 text-gray-400 text-xs">Cancel</button><button onClick={handleLogin} className="flex-1 py-2 rounded-lg bg-indigo-600 text-white text-xs font-bold">Login</button></div>
             </div>
           </div>
