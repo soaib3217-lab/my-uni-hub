@@ -7,10 +7,9 @@ import {
   Trash2, Plus, Upload, Lock, Unlock, FileText, Send, X, 
   ChevronRight, ChevronDown, Folder, Sparkles, MessageSquare, 
   Minimize2, Loader2, GraduationCap, Menu, Search, FolderPlus, 
-  File, User, Lightbulb
+  File, User, Lightbulb, Grid, Zap
 } from 'lucide-react';
 
-// --- ➕ MATH & MARKDOWN IMPORTS ---
 import ReactMarkdown from 'react-markdown';
 import remarkMath from 'remark-math';
 import rehypeKatex from 'rehype-katex';
@@ -18,13 +17,15 @@ import 'katex/dist/katex.min.css';
 
 // --- CONFIGURATION ---
 const SUPABASE_URL = "https://cgwhjwpqemlbpvspcqtc.supabase.co";
-// ✅ YOUR KEY
 const SUPABASE_KEY = "***REMOVED_SUPABASE_KEY***";
-const GEMINI_KEY = "***REMOVED_GEMINI_KEY***";
+const GEMINI_KEY = "AIzaSyAp1QqCnMv-at_o5Pkcr0npCcbw7Pl3Ezc";
+
+// --- 👑 SUPREME ADMIN CONFIGURATION ---
+const SUPREME_ADMIN_ID = "686432"; 
 
 // --- 🛡️ SECURITY: VALID USERS LIST ---
-// EDIT this list with your actual IDs and Names
 const VALID_USERS = [
+    { id: "686432", name: "Supreme Administrator" },
     { id: "B230304071", name: "MST. MAHBUBA KHATUN" },
     { id: "B230304072", name: "VABNA RANI" },
     { id: "B230304074", name: "UDAY KUMER BORMON" },
@@ -126,11 +127,9 @@ const VALID_USERS = [
     { id: "B240304082", name: "NOWSHIN FAREHA TIABA" }
 ];
 
-// --- INITIALIZE CLIENTS ---
 const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
 const genAI = new GoogleGenerativeAI(GEMINI_KEY);
 
-// --- HELPER: CONVERT URL TO BASE64 FOR AI ---
 async function fileToGenerativePart(url: string) {
   const response = await fetch(url);
   const blob = await response.blob();
@@ -152,12 +151,10 @@ async function fileToGenerativePart(url: string) {
 }
 
 export default function Home() {
-  // Data States
   const [folders, setFolders] = useState<any[]>([]);
   const [files, setFiles] = useState<any[]>([]);
   const [selectedFile, setSelectedFile] = useState<any>(null);
   
-  // UI States
   const [expandedYears, setExpandedYears] = useState<string[]>([]);
   const [expandedSemesters, setExpandedSemesters] = useState<string[]>([]);
   const [expandedCourses, setExpandedCourses] = useState<string[]>([]);
@@ -167,23 +164,19 @@ export default function Home() {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
   
-  // Chat States
   const [chatInput, setChatInput] = useState("");
   const [chatHistory, setChatHistory] = useState<{role: string, text: string}[]>([]);
   const [isAiLoading, setIsAiLoading] = useState(false);
   const [suggestedQuestions, setSuggestedQuestions] = useState<string[]>([]);
   const chatScrollRef = useRef<HTMLDivElement>(null);
 
-  // Admin & User States
   const [currentUser, setCurrentUser] = useState<{id: string, name: string} | null>(null);
   const [showAdminModal, setShowAdminModal] = useState(false);
   const [loginIdInput, setLoginIdInput] = useState("");
   
-  // Modals
   const [showAddFolderModal, setShowAddFolderModal] = useState(false);
   const [showAddFileModal, setShowAddFileModal] = useState(false);
   
-  // Forms
   const [newFolderCode, setNewFolderCode] = useState("");
   const [targetYear, setTargetYear] = useState("Year 1");
   const [targetSemester, setTargetSemester] = useState("Semester 1");
@@ -198,31 +191,50 @@ export default function Home() {
 
   useEffect(() => { fetchData(); }, []);
   
-  // Auto-scroll chat
   useEffect(() => {
     if (chatScrollRef.current) chatScrollRef.current.scrollTop = chatScrollRef.current.scrollHeight;
   }, [chatHistory, isAiLoading, suggestedQuestions]);
 
-  // Generate suggestions when file changes
+  // 🛑 QUOTA SAVER: No longer calling generateSuggestions automatically!
   useEffect(() => {
     if (selectedFile) {
         setChatHistory([]); 
         setSuggestedQuestions([]); 
-        generateSuggestions(selectedFile.title);
     }
   }, [selectedFile]);
 
+  useEffect(() => {
+    if (searchTerm.length > 0) {
+       const matches = files.filter(f => f.title.toLowerCase().includes(searchTerm));
+       const years = new Set(matches.map(f => f.year));
+       const semesters = new Set(matches.map(f => `${f.year}-${f.semester}`));
+       const courses = new Set(matches.map(f => f.course_code));
+       const cats = new Set(matches.map(f => `${f.course_code}-${f.category}`));
+
+       setExpandedYears(prev => [...Array.from(years), ...prev]);
+       setExpandedSemesters(prev => [...Array.from(semesters), ...prev]);
+       setExpandedCourses(prev => [...Array.from(courses), ...prev]);
+       setExpandedCategories(prev => [...Array.from(cats), ...prev]);
+    }
+  }, [searchTerm, files]);
+
   async function generateSuggestions(title: string) {
+      setIsAiLoading(true); // Show loader
       try {
+          // ✅ Using stable model name
           const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
           const prompt = `I am studying "${title}". Generate 3 short, curious questions I might ask a tutor. Return ONLY the questions separated by pipes (|).`;
-          const result = await model.generateContent(prompt);
+          
+          const result = await model.generateContent([prompt]);
+          
           const response = await result.response;
           const questions = response.text().split('|').slice(0, 3);
           setSuggestedQuestions(questions);
       } catch (e) {
+          console.error("Suggestion Error:", e);
           setSuggestedQuestions(["Summarize this", "Explain key concepts", "Quiz me"]);
       }
+      setIsAiLoading(false); // Hide loader
   }
 
   async function fetchData() {
@@ -309,11 +321,23 @@ export default function Home() {
     setIsUploading(false);
   }
 
-  async function handleDeleteFile(id: number) {
+  async function handleDeleteFile(file: any) {
     if (!confirm("Delete this file?")) return;
-    await supabase.from('courses').delete().eq('id', id);
-    fetchData();
-    setSelectedFile(null);
+    
+    if (currentUser?.id === SUPREME_ADMIN_ID) {
+        await supabase.from('courses').delete().eq('id', file.id);
+        fetchData();
+        if (selectedFile?.id === file.id) setSelectedFile(null);
+        return;
+    }
+
+    if (file.uploader === currentUser?.name) {
+        await supabase.from('courses').delete().eq('id', file.id);
+        fetchData();
+        if (selectedFile?.id === file.id) setSelectedFile(null);
+    } else {
+        alert("Permission Denied: You can only delete files you uploaded.");
+    }
   }
 
   async function handleChat(overrideInput?: string) {
@@ -326,33 +350,35 @@ export default function Home() {
 
     try {
       const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
-      let promptParts: any[] = [messageToSend];
+      let parts: any[] = [{ text: messageToSend }];
       
       if (selectedFile?.pdf_url && selectedFile.pdf_url.toLowerCase().endsWith('.pdf')) {
          try {
              const pdfPart = await fileToGenerativePart(selectedFile.pdf_url);
-             promptParts = [
+             parts = [
                 { text: `You are an expert professor teaching ${selectedFile.title}. Answer clearly. If using math, use LaTeX format (e.g., $x^2$).` },
                 pdfPart,
                 { text: messageToSend }
              ];
          } catch (e) {
-             promptParts = [{ text: `I cannot read this file directly. Question: ${messageToSend}` }];
+             console.log("PDF Error", e);
+             parts = [{ text: `I cannot read this file directly. Question: ${messageToSend}` }];
          }
       } else {
-         promptParts = [{ text: `Context: ${selectedFile?.title}. Question: ${messageToSend}` }];
+         parts = [{ text: `Context: ${selectedFile?.title}. Question: ${messageToSend}` }];
       }
 
-      const result = await model.generateContent(promptParts);
+      const result = await model.generateContent(parts);
+
       const response = await result.response;
       setChatHistory(prev => [...prev, { role: "bot", text: response.text() }]);
     } catch (error) {
+      console.error("AI Error:", error);
       setChatHistory(prev => [...prev, { role: "bot", text: "⚠️ AI Error. Try again." }]);
     }
     setIsAiLoading(false);
   }
 
-  // --- TOGGLES ---
   const toggleState = (setter: any, val: string) => {
     setter((prev: string[]) => prev.includes(val) ? prev.filter(x => x !== val) : [...prev, val]);
   };
@@ -366,21 +392,17 @@ export default function Home() {
   }));
 
   const CATEGORIES = ["Course Materials", "Hand Notes", "Previous Year Question Solve"];
+  const dashboardFiles = files.filter(f => f.title.toLowerCase().includes(searchTerm));
 
   return (
     <div className="flex h-screen bg-[#09090b] text-gray-100 font-sans overflow-hidden">
-      
-      {/* MOBILE MENU OVERLAY */}
       <AnimatePresence>
         {isMobileMenuOpen && (
             <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 bg-black/80 z-40 md:hidden" onClick={() => setIsMobileMenuOpen(false)}/>
         )}
       </AnimatePresence>
 
-      {/* SIDEBAR EXPLORER */}
-      <motion.div 
-        className={`fixed md:relative inset-y-0 left-0 w-80 bg-[#121212] border-r border-white/10 flex flex-col z-50 transform transition-transform duration-300 ${isMobileMenuOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'}`}
-      >
+      <motion.div className={`fixed md:relative inset-y-0 left-0 w-80 bg-[#121212] border-r border-white/10 flex flex-col z-50 transform transition-transform duration-300 ${isMobileMenuOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'}`}>
         <div className="p-5 border-b border-white/10 flex flex-col gap-4 bg-[#18181b]">
           <div className="flex justify-between items-center">
               <div className="flex items-center gap-3">
@@ -392,6 +414,11 @@ export default function Home() {
               <button className="md:hidden text-gray-400" onClick={() => setIsMobileMenuOpen(false)}><X size={20}/></button>
           </div>
           
+          <div className="relative group">
+              <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 group-focus-within:text-indigo-400 transition-colors"/>
+              <input className="w-full bg-[#27272a] text-xs text-white pl-9 pr-3 py-2.5 rounded-lg outline-none border border-white/5 focus:border-indigo-500/50 focus:bg-[#1f1f22] transition-all placeholder-gray-500" placeholder="Search files..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value.toLowerCase())}/>
+          </div>
+
           {currentUser && (
               <div className="flex items-center gap-3 bg-indigo-500/10 border border-indigo-500/20 p-2 rounded-lg">
                   <div className="w-8 h-8 rounded-full bg-indigo-500 flex items-center justify-center text-xs font-bold text-white">
@@ -403,13 +430,6 @@ export default function Home() {
                   </div>
               </div>
           )}
-        </div>
-
-        <div className="p-4 pb-0">
-            <div className="bg-[#27272a] rounded-lg flex items-center px-3 py-2 border border-white/5">
-                <Search size={14} className="text-gray-500 mr-2"/>
-                <input placeholder="Search files..." className="bg-transparent text-xs text-white outline-none w-full placeholder-gray-500" onChange={(e) => setSearchTerm(e.target.value.toLowerCase())}/>
-            </div>
         </div>
         
         <div className="flex-1 overflow-y-auto p-3 space-y-1 custom-scrollbar">
@@ -462,7 +482,7 @@ export default function Home() {
                                                                             <FileText size={12}/> <span className="truncate">{file.title}</span>
                                                                         </button>
                                                                         {currentUser && (
-                                                                           <button onClick={() => handleDeleteFile(file.id)} className="absolute right-1 top-1.5 p-1 text-red-400 opacity-0 group-hover:opacity-100 hover:bg-red-500/20 rounded">
+                                                                           <button onClick={() => handleDeleteFile(file)} className="absolute right-1 top-1.5 p-1 text-red-400 opacity-0 group-hover:opacity-100 hover:bg-red-500/20 rounded">
                                                                               <Trash2 size={10}/>
                                                                            </button>
                                                                         )}
@@ -501,7 +521,6 @@ export default function Home() {
         </div>
       </motion.div>
 
-      {/* MAIN AREA */}
       <div className="flex-1 flex flex-col relative bg-[#09090b]">
         <div className="md:hidden h-14 border-b border-white/10 flex items-center px-4 justify-between bg-[#121212]">
             <span className="font-bold text-white">Notes</span>
@@ -536,8 +555,6 @@ export default function Home() {
                               <button onClick={() => setIsAiOpen(false)} className="text-gray-500 hover:text-white"><Minimize2 size={14}/></button>
                            </div>
                            <div className="flex-1 overflow-y-auto p-4 custom-scrollbar bg-[#09090b] flex flex-col" ref={chatScrollRef}>
-                              
-                              {/* WELCOME SCREEN */}
                               {chatHistory.length === 0 && (
                                 <div className="flex-1 flex flex-col items-center justify-center text-center opacity-70 p-4">
                                     <div className="w-16 h-16 bg-indigo-600/10 rounded-full flex items-center justify-center mb-4">
@@ -546,38 +563,34 @@ export default function Home() {
                                     <h3 className="text-lg font-bold text-white mb-2">Ready to Help!</h3>
                                     <p className="text-xs text-gray-400 mb-6">I have read <b>{selectedFile.title}</b>. Ask me anything or click a suggestion below.</p>
                                     
-                                    <div className="flex flex-col gap-2 w-full">
-                                        {suggestedQuestions.map((q, i) => (
+                                    {/* 💥 QUOTA SAVER BUTTON 💥 */}
+                                    {suggestedQuestions.length === 0 ? (
+                                        <div className="mt-4">
                                             <button 
-                                                key={i} 
-                                                onClick={() => handleChat(q)}
-                                                className="text-left text-xs bg-[#1e1e22] hover:bg-[#27272a] text-indigo-300 p-3 rounded-xl border border-white/5 transition flex items-center gap-2 group"
+                                                onClick={() => generateSuggestions(selectedFile.title)}
+                                                disabled={isAiLoading}
+                                                className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-500 text-white px-4 py-2 rounded-lg text-xs font-bold transition shadow-lg shadow-indigo-500/20"
                                             >
-                                                <Lightbulb size={14} className="text-yellow-500/50 group-hover:text-yellow-500 transition"/> 
-                                                {q}
+                                                {isAiLoading ? <Loader2 size={14} className="animate-spin"/> : <Sparkles size={14}/>}
+                                                Generate Suggestions
                                             </button>
-                                        ))}
-                                        {suggestedQuestions.length === 0 && (
-                                            <div className="flex justify-center"><Loader2 size={16} className="animate-spin text-gray-600"/></div>
-                                        )}
-                                    </div>
+                                            <p className="text-[10px] text-gray-500 mt-2">Click to generate AI questions (Saves Quota)</p>
+                                        </div>
+                                    ) : (
+                                        <div className="flex flex-col gap-2 w-full">
+                                            {suggestedQuestions.map((q, i) => (
+                                                <button key={i} onClick={() => handleChat(q)} className="text-left text-xs bg-[#1e1e22] hover:bg-[#27272a] text-indigo-300 p-3 rounded-xl border border-white/5 transition flex items-center gap-2 group">
+                                                    <Lightbulb size={14} className="text-yellow-500/50 group-hover:text-yellow-500 transition"/> {q}
+                                                </button>
+                                            ))}
+                                        </div>
+                                    )}
                                 </div>
                               )}
-
                               {chatHistory.map((msg, i) => (
                                  <div key={i} className={`mb-4 p-3 rounded-2xl text-sm leading-relaxed max-w-[90%] ${msg.role === 'user' ? 'bg-indigo-600 text-white ml-auto rounded-br-none' : 'bg-[#1e1e22] text-gray-200 mr-auto border border-white/5 rounded-bl-none'}`}>
-                                    {/* ✅ FIXED: className removed from ReactMarkdown, added to wrapper div */}
                                     <div className="prose prose-invert max-w-none text-sm break-words">
-                                        <ReactMarkdown
-                                            remarkPlugins={[remarkMath]}
-                                            rehypePlugins={[rehypeKatex]}
-                                            components={{
-                                                p: ({node, ...props}) => <p className="mb-2 last:mb-0" {...props} />,
-                                                a: ({node, ...props}) => <a className="text-blue-400 hover:underline" {...props} />
-                                            }}
-                                        >
-                                            {msg.text}
-                                        </ReactMarkdown>
+                                        <ReactMarkdown remarkPlugins={[remarkMath]} rehypePlugins={[rehypeKatex]} components={{ p: ({node, ...props}) => <p className="mb-2 last:mb-0" {...props} />, a: ({node, ...props}) => <a className="text-blue-400 hover:underline" {...props} /> }}>{msg.text}</ReactMarkdown>
                                     </div>
                                  </div>
                               ))}
@@ -591,23 +604,47 @@ export default function Home() {
                 </AnimatePresence>
             </div>
         ) : (
-            <div className="flex-1 flex items-center justify-center text-gray-500 flex-col gap-6 p-4 text-center">
-               <div className="w-20 h-20 rounded-2xl bg-[#121212] flex items-center justify-center border border-white/5 shadow-2xl">
-                  <FileText size={32} className="opacity-20 text-indigo-500" />
+            <div className="flex-1 flex flex-col bg-[#09090b]">
+               <div className="flex-1 p-8 overflow-y-auto custom-scrollbar">
+                   {dashboardFiles.length > 0 ? (
+                       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+                           {dashboardFiles.map((file) => (
+                               <div key={file.id} className="group bg-[#18181b] border border-white/5 hover:border-indigo-500/30 p-4 rounded-xl transition-all hover:shadow-2xl hover:shadow-indigo-900/10 flex flex-col gap-3 relative cursor-pointer overflow-hidden" onClick={() => setSelectedFile(file)}>
+                                   <div className="h-32 bg-[#121212] rounded-lg mb-1 overflow-hidden relative border border-white/5">
+                                       <iframe src={`${file.pdf_url}#toolbar=0&navpanes=0&scrollbar=0`} className="w-full h-full pointer-events-none opacity-60 scale-[1.5] origin-top-left" title="preview" />
+                                       <div className="absolute inset-0 bg-gradient-to-t from-[#18181b] via-transparent to-transparent" />
+                                       <div className="absolute top-2 right-2 bg-black/50 p-1.5 rounded-md backdrop-blur-sm"><FileText size={14} className="text-indigo-400"/></div>
+                                   </div>
+                                   <div className="flex items-start justify-between">
+                                       <div className="flex-1 min-w-0">
+                                           <h3 className="font-semibold text-gray-200 text-sm truncate">{file.title}</h3>
+                                           <p className="text-xs text-gray-500 mt-0.5 flex items-center gap-1"><User size={10} /> {file.uploader || "Unknown"}</p>
+                                       </div>
+                                       {currentUser && (
+                                           <button onClick={(e) => { e.stopPropagation(); handleDeleteFile(file); }} className="text-gray-600 hover:text-red-400 transition p-1 opacity-0 group-hover:opacity-100"><Trash2 size={16} /></button>
+                                       )}
+                                   </div>
+                                   <div className="flex items-center gap-2 mt-auto">
+                                       <span className="text-[10px] bg-white/5 text-gray-400 px-2 py-1 rounded border border-white/5 truncate max-w-[50%]">{file.course_code}</span>
+                                       <span className="text-[10px] bg-white/5 text-gray-400 px-2 py-1 rounded border border-white/5 truncate max-w-[50%]">{file.category}</span>
+                                   </div>
+                               </div>
+                           ))}
+                       </div>
+                   ) : (
+                       <div className="flex flex-col items-center justify-center h-full text-gray-500 gap-4 opacity-50"><Grid size={48} className="text-indigo-900"/><p>No notes found. Upload some!</p></div>
+                   )}
                </div>
-               <p className="text-sm tracking-widest uppercase opacity-40">Select a file from the menu</p>
             </div>
         )}
       </div>
 
-      {/* --- MODALS --- */}
       <AnimatePresence>
         {showAdminModal && (
           <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[60] flex items-center justify-center">
             <div className="bg-[#18181b] border border-white/10 p-8 rounded-2xl w-80 text-center">
               <h3 className="text-white font-bold mb-4">Admin Login</h3>
-              {/* ✅ FIXED: Correct variable name loginIdInput */}
-              <input type="text" placeholder="Admin ID" className="w-full bg-black/50 border border-white/10 p-3 rounded-xl mb-4 text-center text-white tracking-[0.5em] outline-none" value={loginIdInput} onChange={(e) => setLoginIdInput(e.target.value)}/>
+              <input type="text" placeholder="Your ID" className="w-full bg-black/50 border border-white/10 p-3 rounded-xl mb-4 text-center text-white tracking-[0.2em] outline-none focus:border-indigo-500 transition" value={loginIdInput} onChange={(e) => setLoginIdInput(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleLogin()}/>
               <div className="flex gap-2"><button onClick={() => setShowAdminModal(false)} className="flex-1 py-2 rounded-lg bg-white/5 text-gray-400 text-xs">Cancel</button><button onClick={handleLogin} className="flex-1 py-2 rounded-lg bg-indigo-600 text-white text-xs font-bold">Login</button></div>
             </div>
           </div>
