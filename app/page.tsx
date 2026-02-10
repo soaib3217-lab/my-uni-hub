@@ -20,6 +20,9 @@ const SUPABASE_URL = "https://cgwhjwpqemlbpvspcqtc.supabase.co";
 const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNnd2hqd3BxZW1sYnB2c3BjcXRjIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzA0NTQwNjQsImV4cCI6MjA4NjAzMDA2NH0.3atyZpCJhOoRyBEScLw9DCQscJYx897Unxnqyt3j-Dc";
 const GEMINI_KEY = "AIzaSyAp1QqCnMv-at_o5Pkcr0npCcbw7Pl3Ezc";
 
+// ✅ YOUR GOOGLE SCRIPT URL
+const GOOGLE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbxrj2v6XKh2NarhriFbpvNIRSJyXo0k5T3LNiKDAkd16O7brwI52q7jXq5wfa5LORIo/exec"; 
+
 // --- 👑 SUPREME ADMIN CONFIGURATION ---
 const SUPREME_ADMIN_ID = "686432"; 
 
@@ -130,6 +133,29 @@ const VALID_USERS = [
 const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
 const genAI = new GoogleGenerativeAI(GEMINI_KEY);
 
+const toBase64 = (file: File) => new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.readAsDataURL(file);
+    reader.onload = () => resolve((reader.result as string).split(',')[1]);
+    reader.onerror = error => reject(error);
+});
+
+// ✅ HELPER: EXTRACT DRIVE THUMBNAIL
+function getDriveThumbnail(url: string) {
+    if (!url) return null;
+    const match = url.match(/\/d\/([a-zA-Z0-9_-]+)/);
+    if (match && match[1]) {
+        return `https://drive.google.com/thumbnail?id=${match[1]}&sz=w800`;
+    }
+    return null;
+}
+
+// ✅ NEW HELPER: Extract File ID for Deletion
+function getFileIdFromUrl(url: string) {
+    const match = url.match(/\/d\/([a-zA-Z0-9_-]+)/);
+    return match ? match[1] : null;
+}
+
 async function fileToGenerativePart(url: string) {
   const response = await fetch(url);
   const blob = await response.blob();
@@ -195,7 +221,6 @@ export default function Home() {
     if (chatScrollRef.current) chatScrollRef.current.scrollTop = chatScrollRef.current.scrollHeight;
   }, [chatHistory, isAiLoading, suggestedQuestions]);
 
-  // 🛑 QUOTA SAVER: No longer calling generateSuggestions automatically!
   useEffect(() => {
     if (selectedFile) {
         setChatHistory([]); 
@@ -219,14 +244,11 @@ export default function Home() {
   }, [searchTerm, files]);
 
   async function generateSuggestions(title: string) {
-      setIsAiLoading(true); // Show loader
+      setIsAiLoading(true);
       try {
-          // ✅ Using stable model name
           const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
           const prompt = `I am studying "${title}". Generate 3 short, curious questions I might ask a tutor. Return ONLY the questions separated by pipes (|).`;
-          
           const result = await model.generateContent([prompt]);
-          
           const response = await result.response;
           const questions = response.text().split('|').slice(0, 3);
           setSuggestedQuestions(questions);
@@ -234,7 +256,7 @@ export default function Home() {
           console.error("Suggestion Error:", e);
           setSuggestedQuestions(["Summarize this", "Explain key concepts", "Quiz me"]);
       }
-      setIsAiLoading(false); // Hide loader
+      setIsAiLoading(false);
   }
 
   async function fetchData() {
@@ -262,13 +284,11 @@ export default function Home() {
 
   async function handleCreateFolder() {
     if (!newFolderCode) return alert("Enter a Course Code");
-    
     const { error } = await supabase.from('folders').insert({
         code: newFolderCode,
         year: targetYear,
         semester: targetSemester
     });
-
     if (error) alert("Error: " + error.message);
     else {
         setShowAddFolderModal(false);
@@ -282,62 +302,91 @@ export default function Home() {
     if (!currentUser) return alert("You must be logged in!");
 
     let finalUrl = "";
+    setIsUploading(true);
 
-    if (inputType === "file") {
-        if (!uploadFile) return alert("Select a file");
-        setIsUploading(true);
-        const fileName = `${Date.now()}-${uploadFile.name}`;
-        const { error: fileError } = await supabase.storage.from('materials').upload(fileName, uploadFile);
-        if (fileError) { alert("Upload Error: " + fileError.message); setIsUploading(false); return; }
-        const { data: urlData } = supabase.storage.from('materials').getPublicUrl(fileName);
-        finalUrl = urlData.publicUrl;
-    } else {
-        if (!driveLink) return alert("Enter a link");
-        let cleanLink = driveLink;
-        if (cleanLink.includes("drive.google.com") && !cleanLink.includes("/preview")) {
-            cleanLink = cleanLink.replace(/\/view.*|\/edit.*/, '/preview');
+    try {
+        if (inputType === "file") {
+            if (!uploadFile) return alert("Select a file");
+            
+            const base64Content = await toBase64(uploadFile);
+            
+            const response = await fetch(GOOGLE_SCRIPT_URL, {
+                method: 'POST',
+                headers: { "Content-Type": "text/plain" },
+                body: JSON.stringify({ 
+                    file: base64Content, 
+                    filename: uploadFile.name, 
+                    mimeType: uploadFile.type 
+                })
+            });
+            
+            const data = await response.json();
+            if (!data.url) throw new Error("Upload Failed: " + (data.error || "Unknown Error"));
+            finalUrl = data.url;
+
+        } else {
+            if (!driveLink) return alert("Enter a link");
+            let cleanLink = driveLink;
+            if (cleanLink.includes("drive.google.com") && !cleanLink.includes("/preview")) {
+                cleanLink = cleanLink.replace(/\/view.*|\/edit.*/, '/preview');
+            }
+            finalUrl = cleanLink;
         }
-        finalUrl = cleanLink;
-    }
 
-    const { error: dbError } = await supabase.from('courses').insert({
-      title: newFileTitle, 
-      course_code: targetFolderCode, 
-      category: targetCategory,
-      year: targetYear, 
-      semester: targetSemester, 
-      pdf_url: finalUrl,
-      uploader: currentUser.name
-    });
+        const { error: dbError } = await supabase.from('courses').insert({
+          title: newFileTitle, 
+          course_code: targetFolderCode, 
+          category: targetCategory,
+          year: targetYear, 
+          semester: targetSemester, 
+          pdf_url: finalUrl,
+          uploader: currentUser.name
+        });
 
-    if (dbError) alert("Database Error: " + dbError.message);
-    else {
-      setShowAddFileModal(false);
-      setNewFileTitle("");
-      setUploadFile(null);
-      setDriveLink("");
-      fetchData();
+        if (dbError) alert("Database Error: " + dbError.message);
+        else {
+          setShowAddFileModal(false);
+          setNewFileTitle("");
+          setUploadFile(null);
+          setDriveLink("");
+          fetchData();
+        }
+    } catch (error) {
+        alert("Upload Error: " + error);
+        console.error(error);
     }
     setIsUploading(false);
   }
 
   async function handleDeleteFile(file: any) {
-    if (!confirm("Delete this file?")) return;
+    if (!confirm("Are you sure? This will delete the file from Google Drive and the website.")) return;
     
-    if (currentUser?.id === SUPREME_ADMIN_ID) {
-        await supabase.from('courses').delete().eq('id', file.id);
-        fetchData();
-        if (selectedFile?.id === file.id) setSelectedFile(null);
-        return;
+    // Permission Check
+    if (currentUser?.id !== SUPREME_ADMIN_ID && file.uploader !== currentUser?.name) {
+        return alert("Permission Denied: You can only delete files you uploaded.");
     }
 
-    if (file.uploader === currentUser?.name) {
-        await supabase.from('courses').delete().eq('id', file.id);
-        fetchData();
-        if (selectedFile?.id === file.id) setSelectedFile(null);
-    } else {
-        alert("Permission Denied: You can only delete files you uploaded.");
+    // 1. DELETE FROM GOOGLE DRIVE (Using Apps Script)
+    const fileId = getFileIdFromUrl(file.pdf_url);
+    if (fileId) {
+        try {
+            await fetch(GOOGLE_SCRIPT_URL, {
+                method: 'POST',
+                headers: { "Content-Type": "text/plain" },
+                body: JSON.stringify({ 
+                    action: "delete", 
+                    fileId: fileId 
+                })
+            });
+        } catch (err) {
+            console.error("Drive Deletion Error (Continuing to DB delete):", err);
+        }
     }
+
+    // 2. DELETE FROM SUPABASE
+    await supabase.from('courses').delete().eq('id', file.id);
+    fetchData();
+    if (selectedFile?.id === file.id) setSelectedFile(null);
   }
 
   async function handleChat(overrideInput?: string) {
@@ -369,7 +418,6 @@ export default function Home() {
       }
 
       const result = await model.generateContent(parts);
-
       const response = await result.response;
       setChatHistory(prev => [...prev, { role: "bot", text: response.text() }]);
     } catch (error) {
@@ -608,28 +656,45 @@ export default function Home() {
                <div className="flex-1 p-8 overflow-y-auto custom-scrollbar">
                    {dashboardFiles.length > 0 ? (
                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-                           {dashboardFiles.map((file) => (
-                               <div key={file.id} className="group bg-[#18181b] border border-white/5 hover:border-indigo-500/30 p-4 rounded-xl transition-all hover:shadow-2xl hover:shadow-indigo-900/10 flex flex-col gap-3 relative cursor-pointer overflow-hidden" onClick={() => setSelectedFile(file)}>
-                                   <div className="h-32 bg-[#121212] rounded-lg mb-1 overflow-hidden relative border border-white/5">
-                                       <iframe src={`${file.pdf_url}#toolbar=0&navpanes=0&scrollbar=0`} className="w-full h-full pointer-events-none opacity-60 scale-[1.5] origin-top-left" title="preview" />
-                                       <div className="absolute inset-0 bg-gradient-to-t from-[#18181b] via-transparent to-transparent" />
-                                       <div className="absolute top-2 right-2 bg-black/50 p-1.5 rounded-md backdrop-blur-sm"><FileText size={14} className="text-indigo-400"/></div>
-                                   </div>
-                                   <div className="flex items-start justify-between">
-                                       <div className="flex-1 min-w-0">
-                                           <h3 className="font-semibold text-gray-200 text-sm truncate">{file.title}</h3>
-                                           <p className="text-xs text-gray-500 mt-0.5 flex items-center gap-1"><User size={10} /> {file.uploader || "Unknown"}</p>
+                           {dashboardFiles.map((file) => {
+                               const thumb = getDriveThumbnail(file.pdf_url);
+                               return (
+                                   <div key={file.id} className="group bg-[#18181b] border border-white/5 hover:border-indigo-500/30 p-4 rounded-xl transition-all hover:shadow-2xl hover:shadow-indigo-900/10 flex flex-col gap-3 relative cursor-pointer overflow-hidden" onClick={() => setSelectedFile(file)}>
+                                       
+                                       {/* 📄 NEW THUMBNAIL LOGIC */}
+                                       <div className="h-40 bg-[#121212] rounded-lg mb-1 overflow-hidden relative border border-white/5">
+                                           {thumb ? (
+                                               <img 
+                                                   src={thumb} 
+                                                   className="w-full h-full object-cover opacity-80 group-hover:opacity-100 transition-opacity" 
+                                                   alt="preview"
+                                                   loading="lazy"
+                                               />
+                                           ) : (
+                                               <div className="w-full h-full flex items-center justify-center bg-[#1a1a1e]">
+                                                   <FileText size={32} className="text-gray-600"/>
+                                               </div>
+                                           )}
+                                           <div className="absolute inset-0 bg-gradient-to-t from-[#18181b] via-transparent to-transparent" />
+                                           <div className="absolute top-2 right-2 bg-black/60 p-1.5 rounded-md backdrop-blur-md border border-white/10 shadow-lg"><FileText size={14} className="text-indigo-400"/></div>
                                        </div>
-                                       {currentUser && (
-                                           <button onClick={(e) => { e.stopPropagation(); handleDeleteFile(file); }} className="text-gray-600 hover:text-red-400 transition p-1 opacity-0 group-hover:opacity-100"><Trash2 size={16} /></button>
-                                       )}
+
+                                       <div className="flex items-start justify-between">
+                                           <div className="flex-1 min-w-0">
+                                               <h3 className="font-semibold text-gray-200 text-sm truncate">{file.title}</h3>
+                                               <p className="text-xs text-gray-500 mt-0.5 flex items-center gap-1"><User size={10} /> {file.uploader || "Unknown"}</p>
+                                           </div>
+                                           {currentUser && (
+                                               <button onClick={(e) => { e.stopPropagation(); handleDeleteFile(file); }} className="text-gray-600 hover:text-red-400 transition p-1 opacity-0 group-hover:opacity-100"><Trash2 size={16} /></button>
+                                           )}
+                                       </div>
+                                       <div className="flex items-center gap-2 mt-auto">
+                                           <span className="text-[10px] bg-white/5 text-gray-400 px-2 py-1 rounded border border-white/5 truncate max-w-[50%]">{file.course_code}</span>
+                                           <span className="text-[10px] bg-white/5 text-gray-400 px-2 py-1 rounded border border-white/5 truncate max-w-[50%]">{file.category}</span>
+                                       </div>
                                    </div>
-                                   <div className="flex items-center gap-2 mt-auto">
-                                       <span className="text-[10px] bg-white/5 text-gray-400 px-2 py-1 rounded border border-white/5 truncate max-w-[50%]">{file.course_code}</span>
-                                       <span className="text-[10px] bg-white/5 text-gray-400 px-2 py-1 rounded border border-white/5 truncate max-w-[50%]">{file.category}</span>
-                                   </div>
-                               </div>
-                           ))}
+                               );
+                           })}
                        </div>
                    ) : (
                        <div className="flex flex-col items-center justify-center h-full text-gray-500 gap-4 opacity-50"><Grid size={48} className="text-indigo-900"/><p>No notes found. Upload some!</p></div>
@@ -688,9 +753,33 @@ export default function Home() {
                     </div>
 
                     {inputType === "file" ? (
-                        <input type="file" className="w-full text-xs text-gray-500" onChange={(e) => setUploadFile(e.target.files ? e.target.files[0] : null)} />
+                        <div className="flex flex-col gap-2">
+                            <label className="flex items-center justify-center w-full p-4 border-2 border-dashed border-white/10 rounded-xl cursor-pointer hover:border-indigo-500/50 hover:bg-white/5 transition group">
+                                <div className="flex flex-col items-center gap-2 text-gray-400 group-hover:text-white">
+                                    <Upload size={20} />
+                                    <span className="text-xs font-medium">Click to Choose File</span>
+                                </div>
+                                <input 
+                                    key="file-input"
+                                    type="file" 
+                                    className="hidden" 
+                                    onChange={(e) => setUploadFile(e.target.files ? e.target.files[0] : null)} 
+                                />
+                            </label>
+                            {uploadFile && (
+                                <div className="text-xs text-center text-indigo-400 bg-indigo-500/10 py-1 px-2 rounded truncate border border-indigo-500/20">
+                                    Selected: {uploadFile.name}
+                                </div>
+                            )}
+                        </div>
                     ) : (
-                        <input className="w-full bg-black/50 border border-white/10 rounded-lg p-3 text-sm text-white outline-none" placeholder="Paste Link" value={driveLink} onChange={(e) => setDriveLink(e.target.value)} />
+                        <input 
+                            key="link-input"
+                            className="w-full bg-black/50 border border-white/10 rounded-lg p-3 text-sm text-white outline-none" 
+                            placeholder="Paste Link" 
+                            value={driveLink || ""} 
+                            onChange={(e) => setDriveLink(e.target.value)} 
+                        />
                     )}
 
                     <button onClick={handleAddFile} disabled={isUploading} className="w-full bg-indigo-600 py-3 rounded-lg text-white text-sm font-bold">
