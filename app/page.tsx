@@ -1,146 +1,29 @@
 "use client";
+
 import { useState, useEffect, useRef } from 'react';
 import { createClient } from '@supabase/supabase-js';
-import { GoogleGenerativeAI } from "@google/generative-ai";
 import { motion, AnimatePresence } from "framer-motion";
-import { 
-  Trash2, Plus, Upload, Lock, Unlock, FileText, Send, X, 
-  ChevronRight, ChevronDown, Folder, Sparkles, MessageSquare, 
-  Minimize2, Loader2, GraduationCap, Menu, Search, FolderPlus, 
-  File, User, Lightbulb, Grid, Zap
+import {
+  Trash2, Plus, Upload, Lock, Unlock, FileText, Send, X,
+  ChevronRight, ChevronDown, Folder, Sparkles, MessageSquare,
+  Minimize2, Loader2, GraduationCap, Menu, Search, FolderPlus,
+  File, User, Lightbulb, Grid, Home as HomeIcon
 } from 'lucide-react';
 
 import ReactMarkdown from 'react-markdown';
 import remarkMath from 'remark-math';
 import rehypeKatex from 'rehype-katex';
-import 'katex/dist/katex.min.css';
+import 'katex/dist/katex.min.css'; 
 
 // --- CONFIGURATION ---
-const SUPABASE_URL = "https://cgwhjwpqemlbpvspcqtc.supabase.co";
-const SUPABASE_KEY = "***REMOVED_SUPABASE_KEY***";
-const GEMINI_KEY = "AIzaSyAp1QqCnMv-at_o5Pkcr0npCcbw7Pl3Ezc";
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+);
 
-// ✅ YOUR GOOGLE SCRIPT URL
-const GOOGLE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbxrj2v6XKh2NarhriFbpvNIRSJyXo0k5T3LNiKDAkd16O7brwI52q7jXq5wfa5LORIo/exec"; 
-
-// --- 👑 SUPREME ADMIN CONFIGURATION ---
+const GOOGLE_SCRIPT_URL = process.env.NEXT_PUBLIC_GOOGLE_SCRIPT_URL!;
 const SUPREME_ADMIN_ID = "686432"; 
 
-// --- 🛡️ SECURITY: VALID USERS LIST ---
-const VALID_USERS = [
-    { id: "686432", name: "Supreme Administrator" },
-    { id: "B230304071", name: "MST. MAHBUBA KHATUN" },
-    { id: "B230304072", name: "VABNA RANI" },
-    { id: "B230304074", name: "UDAY KUMER BORMON" },
-    { id: "B230304075", name: "SAKIBA ISLAM" },
-    { id: "B230304076", name: "JANNATUL FERDUSI" },
-    { id: "B230304077", name: "MD SADIDUR RAHMAN BHUIYA" },
-    { id: "B230304078", name: "ANIKA TAHSIN RAHMAN" },
-    { id: "B230304079", name: "MAHATHIR MOHAMMAD" },
-    { id: "B230304080", name: "RUBAET FERDOUS NIBIR" },
-    { id: "B230304081", name: "MD. FAHIM HOSSAIN" },
-    { id: "B220304055", name: "TANJIA TABASSUM" },
-    { id: "B230304001", name: "SHAITY BISWAS" },
-    { id: "B230304024", name: "SADIA RAHMAN" },
-    { id: "B230304038", name: "IMTIAZ KABIR SHAOWN" },
-    { id: "B230304062", name: "SADIA SULTANA SORNALI" },
-    { id: "B230304084", name: "SHAMIM" },
-    { id: "B230304085", name: "JANNATUL FERDOUS RIA" },
-    { id: "B240304001", name: "SADNAN SAMI" },
-    { id: "B240304002", name: "HRITHIK KUMAR SUTRADAR" },
-    { id: "B240304003", name: "EKBAL HASAN JIHAD" },
-    { id: "B240304004", name: "MAJEDA KHATUN" },
-    { id: "B240304005", name: "ARFANA TUN SINDA" },
-    { id: "B240304006", name: "UMME HABIBA SYNTHEA" },
-    { id: "B240304007", name: "AFRIN AKTER ANIKA" },
-    { id: "B240304008", name: "MD. ABDUL OYADUD" },
-    { id: "B240304009", name: "MIRZA ROHAN" },
-    { id: "B240304010", name: "DHRUBO MANDOL" },
-    { id: "B240304011", name: "MD KAMRUL HASAN" },
-    { id: "B240304012", name: "SHANTA DAS" },
-    { id: "B240304013", name: "SUSAMA SAHA" },
-    { id: "B240304014", name: "FAIYAZ AHMED TUTUL" },
-    { id: "B240304015", name: "MUNTASHIR RAHMAN ANANN" },
-    { id: "B240304016", name: "MAHMUDUR RAHMAN MUZAHID" },
-    { id: "B240304017", name: "MD. RISAT MIM" },
-    { id: "B240304018", name: "LABIBA RAHMAN" },
-    { id: "B240304019", name: "ONOY CHANDRA SAHA" },
-    { id: "B240304020", name: "MD. MASUD RANA" },
-    { id: "B240304021", name: "MD. PAVEL ANAM" },
-    { id: "B240304022", name: "MOST. NAHIDA AKTHER SORNA" },
-    { id: "B240304023", name: "MD. RIFAT HOSSAIN" },
-    { id: "B240304024", name: "PALLAB DAS" },
-    { id: "B240304025", name: "MUSKAN JAMIL" },
-    { id: "B240304026", name: "MD. SHAHRIAR NAFIZ SHAON" },
-    { id: "B240304027", name: "MD. TAMIM HOSSAIN MOLLA" },
-    { id: "B240304028", name: "MEHEDI HASAN" },
-    { id: "B240304029", name: "JISANUR RAHMAN TUFAN" },
-    { id: "B240304030", name: "MD. MUNIF HOSSAIN" },
-    { id: "B240304031", name: "MD. MUDACCHIR RAHMAN SAMIR" },
-    { id: "B240304032", name: "MST MARJIA SULTANA" },
-    { id: "B240304033", name: "ATIA SAIDA ONIMA" },
-    { id: "B240304034", name: "SABIHA NISHAT" },
-    { id: "B240304035", name: "MST. RISHAT TASFIA" },
-    { id: "B240304036", name: "MD. HASIBUR RAHMAN" },
-    { id: "B240304037", name: "FARHANA AFRIN" },
-    { id: "B240304038", name: "MD. HABIB SHEIKH" },
-    { id: "B240304039", name: "SAMIHA FAIROJ" },
-    { id: "B240304040", name: "MD NASIR SHEIKH" },
-    { id: "B240304041", name: "ARAFATUL ISLAM" },
-    { id: "B240304042", name: "MD. ARIFUL ISLAM CHOWDHURY SUNMOON" },
-    { id: "B240304043", name: "ANIMASH DEV NATH UZZAL" },
-    { id: "B240304044", name: "MD. ARNOB" },
-    { id: "B240304045", name: "MD. MINHAJUL ABEDIN SURKAR MINAR" },
-    { id: "B240304046", name: "MD. RASHIBUR RAHMAN TIHAM" },
-    { id: "B240304047", name: "MD. TANZIL ISLAM RAFI" },
-    { id: "B240304048", name: "MD. MOKSHEDUL MOMIN" },
-    { id: "B240304049", name: "MD. OBAYED HASAN" },
-    { id: "B240304050", name: "SAROAR JAHAN" },
-    { id: "B240304051", name: "TAHIA TASNIM" },
-    { id: "B240304052", name: "MD. NIAMUL ISLAM SIAM" },
-    { id: "B240304053", name: "SHAFAYET RAHMAN KHAN SHAFIN" },
-    { id: "B240304054", name: "MD MAHIN ISLAM" },
-    { id: "B240304055", name: "MASUMA AKTER LABONI" },
-    { id: "B240304056", name: "KANIZ FATEMA" },
-    { id: "B240304057", name: "MD. BOKHTIYER HABIB BIPLOB" },
-    { id: "B240304058", name: "JUNAIDA AFROSE" },
-    { id: "B240304059", name: "MD. AWAL" },
-    { id: "B240304060", name: "RAISA AFRIN SARAH" },
-    { id: "B240304061", name: "ASHIK AHMED" },
-    { id: "B240304062", name: "AISHI MAZUMDER" },
-    { id: "B240304063", name: "MITHILA MAMUN OISHE" },
-    { id: "B240304064", name: "PARIJAT SAHA PREKSHA" },
-    { id: "B240304065", name: "MD. AHNAF BHUIYAN TANZIM" },
-    { id: "B240304066", name: "PROGGYA TAHSIN" },
-    { id: "B240304067", name: "SUKANYA SAHA" },
-    { id: "B240304068", name: "TAWSIN ISLAM" },
-    { id: "B240304069", name: "MD. OHIDUL ISLAM" },
-    { id: "B240304070", name: "FAIJA HABIB" },
-    { id: "B240304071", name: "ABDUR RAHMAN" },
-    { id: "B240304072", name: "SADIA AKTHER" },
-    { id: "B240304073", name: "Α.Ν.M. AKRAMUZZAMAN" },
-    { id: "B240304074", name: "GORGE ROY" },
-    { id: "B240304075", name: "MD. ALIF AHMED SAJIB" },
-    { id: "B240304076", name: "MD.SAMIULLAH BASIR" },
-    { id: "B240304077", name: "S. M. ARIYAN ROKKAN" },
-    { id: "B240304078", name: "ISRAT JAHAN LAMIΑ" },
-    { id: "B240304079", name: "MD. SADIKUR RAHMAN" },
-    { id: "B240304080", name: "AZMAN MAHTAB SHAFIN" },
-    { id: "B240304081", name: "PROTAY BISWAS" },
-    { id: "B240304082", name: "NOWSHIN FAREHA TIABA" }
-];
-
-const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
-const genAI = new GoogleGenerativeAI(GEMINI_KEY);
-
-const toBase64 = (file: File) => new Promise<string>((resolve, reject) => {
-    const reader = new FileReader();
-    reader.readAsDataURL(file);
-    reader.onload = () => resolve((reader.result as string).split(',')[1]);
-    reader.onerror = error => reject(error);
-});
-
-// ✅ HELPER: EXTRACT DRIVE THUMBNAIL
 function getDriveThumbnail(url: string) {
     if (!url) return null;
     const match = url.match(/\/d\/([a-zA-Z0-9_-]+)/);
@@ -150,63 +33,74 @@ function getDriveThumbnail(url: string) {
     return null;
 }
 
-// ✅ NEW HELPER: Extract File ID for Deletion
 function getFileIdFromUrl(url: string) {
     const match = url.match(/\/d\/([a-zA-Z0-9_-]+)/);
     return match ? match[1] : null;
 }
 
-async function fileToGenerativePart(url: string) {
-  const response = await fetch(url);
-  const blob = await response.blob();
-  return new Promise<{ inlineData: { data: string, mimeType: string } }>((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onloadend = () => {
-      const base64data = reader.result as string;
-      const base64Content = base64data.split(',')[1];
-      resolve({
-        inlineData: {
-          data: base64Content,
-          mimeType: blob.type
-        }
-      });
-    };
-    reader.onerror = reject;
-    reader.readAsDataURL(blob);
-  });
-}
+// 🖼️ Thumbnail Component
+const FileThumbnail = ({ url, fileTitle }: { url: string, fileTitle: string }) => {
+    const [imgSrc, setImgSrc] = useState<string | null>(getDriveThumbnail(url));
+    const [hasError, setHasError] = useState(false);
+
+    useEffect(() => {
+        setImgSrc(getDriveThumbnail(url));
+        setHasError(false);
+    }, [url]);
+
+    if (hasError || !imgSrc) {
+        return (
+            <div className="w-full h-full flex items-center justify-center bg-[#1a1a1e]">
+                <FileText size={32} className="text-gray-600"/>
+            </div>
+        );
+    }
+
+    return (
+        <img
+            src={imgSrc}
+            className="w-full h-full object-cover opacity-80 group-hover:opacity-100 transition-opacity"
+            alt={fileTitle}
+            loading="lazy"
+            onError={() => setHasError(true)}
+        />
+    );
+};
 
 export default function Home() {
   const [folders, setFolders] = useState<any[]>([]);
   const [files, setFiles] = useState<any[]>([]);
   const [selectedFile, setSelectedFile] = useState<any>(null);
   
+  // Expand States
   const [expandedYears, setExpandedYears] = useState<string[]>([]);
   const [expandedSemesters, setExpandedSemesters] = useState<string[]>([]);
   const [expandedCourses, setExpandedCourses] = useState<string[]>([]);
   const [expandedCategories, setExpandedCategories] = useState<string[]>([]);
   
+  // UI States
   const [isAiOpen, setIsAiOpen] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
   
+  // Chat States
   const [chatInput, setChatInput] = useState("");
   const [chatHistory, setChatHistory] = useState<{role: string, text: string}[]>([]);
   const [isAiLoading, setIsAiLoading] = useState(false);
   const [suggestedQuestions, setSuggestedQuestions] = useState<string[]>([]);
   const chatScrollRef = useRef<HTMLDivElement>(null);
-
+  
+  // Auth & Admin States
   const [currentUser, setCurrentUser] = useState<{id: string, name: string} | null>(null);
   const [showAdminModal, setShowAdminModal] = useState(false);
   const [loginIdInput, setLoginIdInput] = useState("");
   
+  // Upload/Folder States
   const [showAddFolderModal, setShowAddFolderModal] = useState(false);
   const [showAddFileModal, setShowAddFileModal] = useState(false);
-  
   const [newFolderCode, setNewFolderCode] = useState("");
   const [targetYear, setTargetYear] = useState("Year 1");
   const [targetSemester, setTargetSemester] = useState("Semester 1");
-  
   const [newFileTitle, setNewFileTitle] = useState("");
   const [targetFolderCode, setTargetFolderCode] = useState("");
   const [targetCategory, setTargetCategory] = useState("Course Materials");
@@ -214,6 +108,7 @@ export default function Home() {
   const [uploadFile, setUploadFile] = useState<File | null>(null);
   const [driveLink, setDriveLink] = useState("");
   const [isUploading, setIsUploading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(0);
 
   useEffect(() => { fetchData(); }, []);
   
@@ -223,8 +118,8 @@ export default function Home() {
 
   useEffect(() => {
     if (selectedFile) {
-        setChatHistory([]); 
-        setSuggestedQuestions([]); 
+        setChatHistory([]);
+        setSuggestedQuestions([]);
     }
   }, [selectedFile]);
 
@@ -235,7 +130,6 @@ export default function Home() {
        const semesters = new Set(matches.map(f => `${f.year}-${f.semester}`));
        const courses = new Set(matches.map(f => f.course_code));
        const cats = new Set(matches.map(f => `${f.course_code}-${f.category}`));
-
        setExpandedYears(prev => [...Array.from(years), ...prev]);
        setExpandedSemesters(prev => [...Array.from(semesters), ...prev]);
        setExpandedCourses(prev => [...Array.from(courses), ...prev]);
@@ -243,14 +137,23 @@ export default function Home() {
     }
   }, [searchTerm, files]);
 
+  // --- 🔒 SECURE AI CALLS ---
   async function generateSuggestions(title: string) {
       setIsAiLoading(true);
       try {
-          const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
-          const prompt = `I am studying "${title}". Generate 3 short, curious questions I might ask a tutor. Return ONLY the questions separated by pipes (|).`;
-          const result = await model.generateContent([prompt]);
-          const response = await result.response;
-          const questions = response.text().split('|').slice(0, 3);
+          const response = await fetch('/api/chat', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ 
+                  message: `Generate 3 short, curious questions I might ask a tutor about "${title}". Return ONLY the questions separated by pipes (|).`,
+                  context: null 
+              })
+          });
+          
+          const data = await response.json();
+          if(data.error) throw new Error(data.error);
+
+          const questions = data.text.split('|').slice(0, 3);
           setSuggestedQuestions(questions);
       } catch (e) {
           console.error("Suggestion Error:", e);
@@ -259,22 +162,64 @@ export default function Home() {
       setIsAiLoading(false);
   }
 
+  async function handleChat(overrideInput?: string) {
+    const messageToSend = overrideInput || chatInput;
+    if (!messageToSend) return;
+    
+    setChatInput("");
+    setChatHistory(prev => [...prev, { role: "user", text: messageToSend }]);
+    setIsAiLoading(true);
+
+    try {
+        const response = await fetch('/api/chat', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ 
+                message: messageToSend,
+                context: selectedFile?.title || null
+            })
+        });
+
+        const data = await response.json();
+        if (data.error) throw new Error(data.error);
+        
+        setChatHistory(prev => [...prev, { role: "bot", text: data.text }]);
+    } catch (error) {
+        console.error("AI Error:", error);
+        setChatHistory(prev => [...prev, { role: "bot", text: "⚠️ Server Error. Please try again." }]);
+    }
+    setIsAiLoading(false);
+  }
+
+  // --- DATABASE & AUTH ---
   async function fetchData() {
     const { data: folderData } = await supabase.from('folders').select('*').order('code', { ascending: true });
     if (folderData) setFolders(folderData);
-
     const { data: fileData } = await supabase.from('courses').select('*').order('created_at', { ascending: true });
     if (fileData) setFiles(fileData);
   }
 
-  function handleLogin() {
-    const user = VALID_USERS.find(u => u.id === loginIdInput);
-    if (user) {
-        setCurrentUser(user);
-        setShowAdminModal(false);
-        setLoginIdInput("");
-    } else {
-        alert("ID Access Denied.");
+  // --- 🔒 SECURE LOGIN ---
+  async function handleLogin() {
+    try {
+        const response = await fetch('/api/auth', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ id: loginIdInput })
+        });
+
+        const data = await response.json();
+
+        if (data.success && data.user) {
+            setCurrentUser(data.user);
+            setShowAdminModal(false);
+            setLoginIdInput("");
+        } else {
+            alert("Access Denied: Invalid ID");
+        }
+    } catch (error) {
+        console.error("Login Error:", error);
+        alert("Login failed due to server error.");
     }
   }
 
@@ -297,32 +242,74 @@ export default function Home() {
     }
   }
 
+  // --- 📂 FILE UPLOAD LOGIC ---
   async function handleAddFile() {
     if (!newFileTitle || !targetFolderCode) return alert("Fill all fields");
     if (!currentUser) return alert("You must be logged in!");
 
     let finalUrl = "";
     setIsUploading(true);
+    setUploadProgress(0);
 
     try {
         if (inputType === "file") {
             if (!uploadFile) return alert("Select a file");
+
+            setUploadProgress(5); 
             
-            const base64Content = await toBase64(uploadFile);
-            
-            const response = await fetch(GOOGLE_SCRIPT_URL, {
+            const initResponse = await fetch(GOOGLE_SCRIPT_URL, {
                 method: 'POST',
                 headers: { "Content-Type": "text/plain" },
-                body: JSON.stringify({ 
-                    file: base64Content, 
-                    filename: uploadFile.name, 
-                    mimeType: uploadFile.type 
+                body: JSON.stringify({
+                    action: "get_upload_url",
+                    filename: uploadFile.name,
+                    mimeType: uploadFile.type
                 })
             });
+            const initData = await initResponse.json();
+            if (!initData.success) throw new Error(initData.error || "Failed to start upload");
             
-            const data = await response.json();
-            if (!data.url) throw new Error("Upload Failed: " + (data.error || "Unknown Error"));
-            finalUrl = data.url;
+            const uploadUrl = initData.uploadUrl;
+            
+            await new Promise((resolve, reject) => {
+                const xhr = new XMLHttpRequest();
+                xhr.open("PUT", uploadUrl, true);
+                xhr.setRequestHeader("Content-Type", uploadFile.type);
+
+                xhr.upload.onprogress = (e) => {
+                    if (e.lengthComputable) {
+                        const percentComplete = (e.loaded / e.total) * 85; 
+                        setUploadProgress(5 + percentComplete);
+                    }
+                };
+
+                xhr.onload = () => resolve(xhr.response); 
+                xhr.onerror = () => {
+                    console.warn("XHR Error detected (likely CORS). Proceeding to verification...");
+                    resolve(null); 
+                };
+
+                xhr.send(uploadFile);
+            });
+
+            setUploadProgress(92); 
+            
+            const finalizeResponse = await fetch(GOOGLE_SCRIPT_URL, {
+                method: 'POST',
+                headers: { "Content-Type": "text/plain" },
+                body: JSON.stringify({
+                    action: "make_public",
+                    filename: uploadFile.name
+                })
+            });
+            const finalizeData = await finalizeResponse.json();
+            if (!finalizeData.success) throw new Error(finalizeData.error || "Verification failed.");
+            
+            if (finalizeData.fileId) {
+                finalUrl = "https://drive.google.com/file/d/" + finalizeData.fileId + "/preview";
+            } else {
+                 finalUrl = finalizeData.url;
+            }
 
         } else {
             if (!driveLink) return alert("Enter a link");
@@ -333,12 +320,14 @@ export default function Home() {
             finalUrl = cleanLink;
         }
 
+        setUploadProgress(98);
+
         const { error: dbError } = await supabase.from('courses').insert({
-          title: newFileTitle, 
-          course_code: targetFolderCode, 
+          title: newFileTitle,
+          course_code: targetFolderCode,
           category: targetCategory,
-          year: targetYear, 
-          semester: targetSemester, 
+          year: targetYear,
+          semester: targetSemester,
           pdf_url: finalUrl,
           uploader: currentUser.name
         });
@@ -351,84 +340,49 @@ export default function Home() {
           setDriveLink("");
           fetchData();
         }
-    } catch (error) {
-        alert("Upload Error: " + error);
+    } catch (error: any) {
+        alert("Error: " + (error.message || error));
         console.error(error);
     }
-    setIsUploading(false);
+    
+    setUploadProgress(100);
+    setTimeout(() => {
+        setIsUploading(false);
+        setUploadProgress(0);
+    }, 500);
   }
 
   async function handleDeleteFile(file: any) {
     if (!confirm("Are you sure? This will delete the file from Google Drive and the website.")) return;
     
-    // Permission Check
     if (currentUser?.id !== SUPREME_ADMIN_ID && file.uploader !== currentUser?.name) {
         return alert("Permission Denied: You can only delete files you uploaded.");
     }
 
-    // 1. DELETE FROM GOOGLE DRIVE (Using Apps Script)
     const fileId = getFileIdFromUrl(file.pdf_url);
     if (fileId) {
         try {
             await fetch(GOOGLE_SCRIPT_URL, {
                 method: 'POST',
                 headers: { "Content-Type": "text/plain" },
-                body: JSON.stringify({ 
-                    action: "delete", 
-                    fileId: fileId 
-                })
+                body: JSON.stringify({ action: "delete", fileId: fileId })
             });
         } catch (err) {
-            console.error("Drive Deletion Error (Continuing to DB delete):", err);
+            console.error("Drive Deletion Error:", err);
         }
     }
-
-    // 2. DELETE FROM SUPABASE
     await supabase.from('courses').delete().eq('id', file.id);
     fetchData();
     if (selectedFile?.id === file.id) setSelectedFile(null);
   }
 
-  async function handleChat(overrideInput?: string) {
-    const messageToSend = overrideInput || chatInput;
-    if (!messageToSend) return;
-    
-    setChatInput("");
-    setChatHistory(prev => [...prev, { role: "user", text: messageToSend }]);
-    setIsAiLoading(true);
-
-    try {
-      const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
-      let parts: any[] = [{ text: messageToSend }];
-      
-      if (selectedFile?.pdf_url && selectedFile.pdf_url.toLowerCase().endsWith('.pdf')) {
-         try {
-             const pdfPart = await fileToGenerativePart(selectedFile.pdf_url);
-             parts = [
-                { text: `You are an expert professor teaching ${selectedFile.title}. Answer clearly. If using math, use LaTeX format (e.g., $x^2$).` },
-                pdfPart,
-                { text: messageToSend }
-             ];
-         } catch (e) {
-             console.log("PDF Error", e);
-             parts = [{ text: `I cannot read this file directly. Question: ${messageToSend}` }];
-         }
-      } else {
-         parts = [{ text: `Context: ${selectedFile?.title}. Question: ${messageToSend}` }];
-      }
-
-      const result = await model.generateContent(parts);
-      const response = await result.response;
-      setChatHistory(prev => [...prev, { role: "bot", text: response.text() }]);
-    } catch (error) {
-      console.error("AI Error:", error);
-      setChatHistory(prev => [...prev, { role: "bot", text: "⚠️ AI Error. Try again." }]);
-    }
-    setIsAiLoading(false);
-  }
-
   const toggleState = (setter: any, val: string) => {
     setter((prev: string[]) => prev.includes(val) ? prev.filter(x => x !== val) : [...prev, val]);
+  };
+
+  const handleGoHome = () => {
+    setSelectedFile(null);
+    setSearchTerm("");
   };
 
   const structure = ["Year 1", "Year 2", "Year 3", "Year 4"].map(year => ({
@@ -443,7 +397,7 @@ export default function Home() {
   const dashboardFiles = files.filter(f => f.title.toLowerCase().includes(searchTerm));
 
   return (
-    <div className="flex h-screen bg-[#09090b] text-gray-100 font-sans overflow-hidden">
+    <div className="flex h-[100dvh] bg-[#09090b] text-gray-100 font-sans overflow-hidden">
       <AnimatePresence>
         {isMobileMenuOpen && (
             <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 bg-black/80 z-40 md:hidden" onClick={() => setIsMobileMenuOpen(false)}/>
@@ -453,7 +407,7 @@ export default function Home() {
       <motion.div className={`fixed md:relative inset-y-0 left-0 w-80 bg-[#121212] border-r border-white/10 flex flex-col z-50 transform transition-transform duration-300 ${isMobileMenuOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'}`}>
         <div className="p-5 border-b border-white/10 flex flex-col gap-4 bg-[#18181b]">
           <div className="flex justify-between items-center">
-              <div className="flex items-center gap-3">
+              <div className="flex items-center gap-3 cursor-pointer" onClick={handleGoHome}>
                 <div className="w-8 h-8 rounded-lg bg-indigo-600 flex items-center justify-center shadow-lg shadow-indigo-500/30">
                   <GraduationCap size={18} className="text-white" />
                 </div>
@@ -462,9 +416,15 @@ export default function Home() {
               <button className="md:hidden text-gray-400" onClick={() => setIsMobileMenuOpen(false)}><X size={20}/></button>
           </div>
           
-          <div className="relative group">
-              <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 group-focus-within:text-indigo-400 transition-colors"/>
-              <input className="w-full bg-[#27272a] text-xs text-white pl-9 pr-3 py-2.5 rounded-lg outline-none border border-white/5 focus:border-indigo-500/50 focus:bg-[#1f1f22] transition-all placeholder-gray-500" placeholder="Search files..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value.toLowerCase())}/>
+          <div className="flex gap-2">
+            <button onClick={handleGoHome} className="p-2.5 bg-[#27272a] hover:bg-[#3f3f46] rounded-lg text-gray-400 hover:text-white transition border border-white/5">
+                <HomeIcon size={16} />
+            </button>
+            
+            <div className="relative group flex-1">
+                <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 group-focus-within:text-indigo-400 transition-colors"/>
+                <input className="w-full bg-[#27272a] text-xs text-white pl-9 pr-3 py-2.5 rounded-lg outline-none border border-white/5 focus:border-indigo-500/50 focus:bg-[#1f1f22] transition-all placeholder-gray-500" placeholder="Search files..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value.toLowerCase())}/>
+            </div>
           </div>
 
           {currentUser && (
@@ -505,42 +465,42 @@ export default function Home() {
                              {sData.folders.map(folder => (
                                  <div key={folder.id}>
                                      <button onClick={() => toggleState(setExpandedCourses, folder.code)} className="w-full flex items-center gap-2 p-2 hover:bg-white/5 rounded-lg text-xs text-gray-300 bg-[#1e1e22] border border-white/5">
-                                         {expandedCourses.includes(folder.code) ? <ChevronDown size={12}/> : <ChevronRight size={12}/>}
-                                         <span className="font-bold text-indigo-300">{folder.code}</span>
+                                          {expandedCourses.includes(folder.code) ? <ChevronDown size={12}/> : <ChevronRight size={12}/>}
+                                          <span className="font-bold text-indigo-300">{folder.code}</span>
                                      </button>
                                      
                                      {expandedCourses.includes(folder.code) && (
                                          <div className="ml-3 pl-2 border-l border-indigo-500/20 mt-1 space-y-1">
-                                             {CATEGORIES.map(cat => {
-                                                 const catFiles = files.filter(f => f.course_code === folder.code && f.category === cat && f.title.toLowerCase().includes(searchTerm));
-                                                 const catKey = `${folder.code}-${cat}`;
-                                                 return (
-                                                    <div key={cat}>
-                                                        <button onClick={() => toggleState(setExpandedCategories, catKey)} className="w-full flex items-center gap-2 p-1.5 hover:bg-white/5 rounded text-[11px] text-gray-400">
-                                                            {expandedCategories.includes(catKey) ? <ChevronDown size={10}/> : <ChevronRight size={10}/>}
-                                                            {cat}
-                                                            <span className="ml-auto text-[9px] bg-white/10 px-1 rounded">{catFiles.length}</span>
-                                                        </button>
-                                                        {expandedCategories.includes(catKey) && (
-                                                            <div className="ml-4 space-y-1 mt-1">
-                                                                {catFiles.length === 0 && <div className="text-[10px] text-gray-700 italic px-2">Empty</div>}
-                                                                {catFiles.map(file => (
-                                                                    <div key={file.id} className="relative group">
-                                                                        <button onClick={() => { setSelectedFile(file); setIsMobileMenuOpen(false); }} className={`w-full text-left flex items-center gap-2 p-2 rounded text-[11px] border border-transparent ${selectedFile?.id === file.id ? 'bg-indigo-600 text-white shadow-md' : 'hover:bg-white/5 text-gray-400 border-white/5 bg-[#000000]'}`}>
-                                                                            <FileText size={12}/> <span className="truncate">{file.title}</span>
-                                                                        </button>
-                                                                        {currentUser && (
-                                                                           <button onClick={() => handleDeleteFile(file)} className="absolute right-1 top-1.5 p-1 text-red-400 opacity-0 group-hover:opacity-100 hover:bg-red-500/20 rounded">
-                                                                              <Trash2 size={10}/>
-                                                                           </button>
-                                                                        )}
-                                                                    </div>
-                                                                ))}
-                                                            </div>
-                                                        )}
-                                                    </div>
-                                                 );
-                                             })}
+                                              {CATEGORIES.map(cat => {
+                                                  const catFiles = files.filter(f => f.course_code === folder.code && f.category === cat && f.title.toLowerCase().includes(searchTerm));
+                                                  const catKey = `${folder.code}-${cat}`;
+                                                  return (
+                                                     <div key={cat}>
+                                                         <button onClick={() => toggleState(setExpandedCategories, catKey)} className="w-full flex items-center gap-2 p-1.5 hover:bg-white/5 rounded text-[11px] text-gray-400">
+                                                             {expandedCategories.includes(catKey) ? <ChevronDown size={10}/> : <ChevronRight size={10}/>}
+                                                             {cat}
+                                                             <span className="ml-auto text-[9px] bg-white/10 px-1 rounded">{catFiles.length}</span>
+                                                         </button>
+                                                         {expandedCategories.includes(catKey) && (
+                                                             <div className="ml-4 space-y-1 mt-1">
+                                                                 {catFiles.length === 0 && <div className="text-[10px] text-gray-700 italic px-2">Empty</div>}
+                                                                 {catFiles.map(file => (
+                                                                     <div key={file.id} className="relative group">
+                                                                         <button onClick={() => { setSelectedFile(file); setIsMobileMenuOpen(false); }} className={`w-full text-left flex items-center gap-2 p-2 rounded text-[11px] border border-transparent ${selectedFile?.id === file.id ? 'bg-indigo-600 text-white shadow-md' : 'hover:bg-white/5 text-gray-400 border-white/5 bg-[#000000]'}`}>
+                                                                                 <FileText size={12}/> <span className="truncate">{file.title}</span>
+                                                                         </button>
+                                                                         {currentUser && (
+                                                                            <button onClick={() => handleDeleteFile(file)} className="absolute right-1 top-1.5 p-1 text-red-400 opacity-0 group-hover:opacity-100 hover:bg-red-500/20 rounded">
+                                                                                <Trash2 size={10}/>
+                                                                            </button>
+                                                                         )}
+                                                                     </div>
+                                                                 ))}
+                                                             </div>
+                                                         )}
+                                                     </div>
+                                                  );
+                                              })}
                                          </div>
                                      )}
                                  </div>
@@ -569,17 +529,23 @@ export default function Home() {
         </div>
       </motion.div>
 
-      <div className="flex-1 flex flex-col relative bg-[#09090b]">
-        <div className="md:hidden h-14 border-b border-white/10 flex items-center px-4 justify-between bg-[#121212]">
-            <span className="font-bold text-white">Notes</span>
-            <button onClick={() => setIsMobileMenuOpen(true)} className="text-gray-300"><Menu size={24}/></button>
-        </div>
+      {/* 🟢 SCROLL FIX APPLIED HERE (w-full, max-w-full, overflow-hidden) */}
+      <div className="flex-1 flex flex-col relative bg-[#09090b] w-full max-w-full overflow-hidden">
+        {!selectedFile && (
+            <div className="md:hidden h-14 border-b border-white/10 flex items-center px-4 justify-between bg-[#121212] shrink-0">
+                <span className="font-bold text-white">Notes</span>
+                <button onClick={() => setIsMobileMenuOpen(true)} className="text-gray-300"><Menu size={24}/></button>
+            </div>
+        )}
 
         {selectedFile ? (
             <div className="flex-1 flex flex-col md:flex-row overflow-hidden p-0 md:p-4 gap-4 relative">
                 <motion.div layout className="flex-1 bg-[#121212] md:rounded-2xl border-x md:border border-white/10 overflow-hidden shadow-2xl relative flex flex-col">
-                   <div className="h-14 bg-[#18181b] border-b border-white/10 flex items-center justify-between px-4">
-                      <div className="flex flex-col overflow-hidden">
+                   <div className="h-14 bg-[#18181b] border-b border-white/10 flex items-center justify-between px-4 gap-2">
+                      <button onClick={handleGoHome} className="md:hidden mr-2 text-gray-400 hover:text-white">
+                        <HomeIcon size={20} />
+                      </button>
+                      <div className="flex flex-col overflow-hidden flex-1">
                           <div className="flex items-center gap-2">
                               <span className="text-[10px] bg-indigo-500/20 text-indigo-300 px-2 py-0.5 rounded border border-indigo-500/30 whitespace-nowrap">{selectedFile.category}</span>
                               <span className="text-[10px] text-gray-500 flex items-center gap-1"><User size={10}/> {selectedFile.uploader || "Unknown"}</span>
@@ -611,10 +577,9 @@ export default function Home() {
                                     <h3 className="text-lg font-bold text-white mb-2">Ready to Help!</h3>
                                     <p className="text-xs text-gray-400 mb-6">I have read <b>{selectedFile.title}</b>. Ask me anything or click a suggestion below.</p>
                                     
-                                    {/* 💥 QUOTA SAVER BUTTON 💥 */}
                                     {suggestedQuestions.length === 0 ? (
                                         <div className="mt-4">
-                                            <button 
+                                            <button
                                                 onClick={() => generateSuggestions(selectedFile.title)}
                                                 disabled={isAiLoading}
                                                 className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-500 text-white px-4 py-2 rounded-lg text-xs font-bold transition shadow-lg shadow-indigo-500/20"
@@ -652,29 +617,16 @@ export default function Home() {
                 </AnimatePresence>
             </div>
         ) : (
-            <div className="flex-1 flex flex-col bg-[#09090b]">
-               <div className="flex-1 p-8 overflow-y-auto custom-scrollbar">
+            // 🟢 FIXED: Added min-h-0 and overflow-hidden here to force scroll
+            <div className="flex-1 flex flex-col bg-[#09090b] overflow-hidden min-h-0">
+               <div className="flex-1 p-4 md:p-8 overflow-y-auto custom-scrollbar">
                    {dashboardFiles.length > 0 ? (
                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-                           {dashboardFiles.map((file) => {
-                               const thumb = getDriveThumbnail(file.pdf_url);
-                               return (
-                                   <div key={file.id} className="group bg-[#18181b] border border-white/5 hover:border-indigo-500/30 p-4 rounded-xl transition-all hover:shadow-2xl hover:shadow-indigo-900/10 flex flex-col gap-3 relative cursor-pointer overflow-hidden" onClick={() => setSelectedFile(file)}>
+                           {dashboardFiles.map((file) => (
+                               <div key={file.id} className="group bg-[#18181b] border border-white/5 hover:border-indigo-500/30 p-4 rounded-xl transition-all hover:shadow-2xl hover:shadow-indigo-900/10 flex flex-col gap-3 relative cursor-pointer overflow-hidden" onClick={() => setSelectedFile(file)}>
                                        
-                                       {/* 📄 NEW THUMBNAIL LOGIC */}
                                        <div className="h-40 bg-[#121212] rounded-lg mb-1 overflow-hidden relative border border-white/5">
-                                           {thumb ? (
-                                               <img 
-                                                   src={thumb} 
-                                                   className="w-full h-full object-cover opacity-80 group-hover:opacity-100 transition-opacity" 
-                                                   alt="preview"
-                                                   loading="lazy"
-                                               />
-                                           ) : (
-                                               <div className="w-full h-full flex items-center justify-center bg-[#1a1a1e]">
-                                                   <FileText size={32} className="text-gray-600"/>
-                                               </div>
-                                           )}
+                                           <FileThumbnail url={file.pdf_url} fileTitle={file.title} />
                                            <div className="absolute inset-0 bg-gradient-to-t from-[#18181b] via-transparent to-transparent" />
                                            <div className="absolute top-2 right-2 bg-black/60 p-1.5 rounded-md backdrop-blur-md border border-white/10 shadow-lg"><FileText size={14} className="text-indigo-400"/></div>
                                        </div>
@@ -692,9 +644,8 @@ export default function Home() {
                                            <span className="text-[10px] bg-white/5 text-gray-400 px-2 py-1 rounded border border-white/5 truncate max-w-[50%]">{file.course_code}</span>
                                            <span className="text-[10px] bg-white/5 text-gray-400 px-2 py-1 rounded border border-white/5 truncate max-w-[50%]">{file.category}</span>
                                        </div>
-                                   </div>
-                               );
-                           })}
+                               </div>
+                           ))}
                        </div>
                    ) : (
                        <div className="flex flex-col items-center justify-center h-full text-gray-500 gap-4 opacity-50"><Grid size={48} className="text-indigo-900"/><p>No notes found. Upload some!</p></div>
@@ -759,11 +710,11 @@ export default function Home() {
                                     <Upload size={20} />
                                     <span className="text-xs font-medium">Click to Choose File</span>
                                 </div>
-                                <input 
+                                <input
                                     key="file-input"
-                                    type="file" 
-                                    className="hidden" 
-                                    onChange={(e) => setUploadFile(e.target.files ? e.target.files[0] : null)} 
+                                    type="file"
+                                    className="hidden"
+                                    onChange={(e) => setUploadFile(e.target.files ? e.target.files[0] : null)}
                                 />
                             </label>
                             {uploadFile && (
@@ -773,17 +724,23 @@ export default function Home() {
                             )}
                         </div>
                     ) : (
-                        <input 
+                        <input
                             key="link-input"
-                            className="w-full bg-black/50 border border-white/10 rounded-lg p-3 text-sm text-white outline-none" 
-                            placeholder="Paste Link" 
-                            value={driveLink || ""} 
-                            onChange={(e) => setDriveLink(e.target.value)} 
+                            className="w-full bg-black/50 border border-white/10 rounded-lg p-3 text-sm text-white outline-none"
+                            placeholder="Paste Link"
+                            value={driveLink || ""}
+                            onChange={(e) => setDriveLink(e.target.value)}
                         />
                     )}
+                    
+                    {isUploading && (
+                        <div className="w-full bg-gray-700 h-2 rounded-full overflow-hidden">
+                             <div className="bg-indigo-500 h-full transition-all duration-300 ease-out" style={{ width: `${uploadProgress}%` }}></div>
+                        </div>
+                    )}
 
-                    <button onClick={handleAddFile} disabled={isUploading} className="w-full bg-indigo-600 py-3 rounded-lg text-white text-sm font-bold">
-                        {isUploading ? "Uploading..." : "Save File"}
+                    <button onClick={handleAddFile} disabled={isUploading} className="w-full bg-indigo-600 py-3 rounded-lg text-white text-sm font-bold disabled:bg-indigo-600/50 disabled:cursor-not-allowed">
+                        {isUploading ? `${Math.round(uploadProgress)}%` : "Save File"}
                     </button>
                 </div>
             </div>
