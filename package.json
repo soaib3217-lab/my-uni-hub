@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "@google/generative-ai": "^0.24.1",
+    "@netlify/plugin-nextjs": "^5.15.8",
     "@supabase/supabase-js": "^2.95.3",
     "framer-motion": "^12.33.0",
     "katex": "^0.16.28",
