@@ -242,10 +242,18 @@ export default function Home() {
     }
   }
 
-  // --- 📂 FILE UPLOAD LOGIC ---
+// --- 📂 FILE UPLOAD LOGIC (FIXED) ---
   async function handleAddFile() {
     if (!newFileTitle || !targetFolderCode) return alert("Fill all fields");
     if (!currentUser) return alert("You must be logged in!");
+
+    // 🔍 FIX: Find the correct folder details based on the selected code
+    const selectedFolder = folders.find(f => f.code === targetFolderCode);
+    if (!selectedFolder) return alert("Invalid Folder Selected");
+
+    // Use the folder's year/semester, NOT the default state values
+    const finalYear = selectedFolder.year;
+    const finalSemester = selectedFolder.semester;
 
     let finalUrl = "";
     setIsUploading(true);
@@ -322,12 +330,13 @@ export default function Home() {
 
         setUploadProgress(98);
 
+        // 📝 FIX: Use finalYear and finalSemester here
         const { error: dbError } = await supabase.from('courses').insert({
           title: newFileTitle,
           course_code: targetFolderCode,
           category: targetCategory,
-          year: targetYear,
-          semester: targetSemester,
+          year: finalYear,           // <--- CHANGED THIS
+          semester: finalSemester,   // <--- CHANGED THIS
           pdf_url: finalUrl,
           uploader: currentUser.name
         });
