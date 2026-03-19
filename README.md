@@ -39,7 +39,7 @@ To get a local copy up and running, follow these simple steps.
 
 1. Clone the repo:
    ```sh
-   git clone [https://github.com/your-username/my-uni-hub.git](https://github.com/your-username/my-uni-hub.git)
+   git clone [https://github.com/soaib3217-lab/my-uni-hub.git](https://github.com/soaib3217-lab/my-uni-hub.git)
 
 Navigate to the project directory:
 
