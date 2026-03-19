@@ -1,6 +1,6 @@
 # 🎓 My Uni Hub
 
-![Project Banner](https://via.placeholder.com/1200x400?text=My+Uni+Hub+-+Academic+Note+Management)
+![Project Banner](./assets/banner.png)
 
 > A centralized, web-based platform for managing, storing, and organizing university notes and academic resources.
 
