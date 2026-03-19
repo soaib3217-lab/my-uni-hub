@@ -14,7 +14,6 @@
 * **Real-time Database:** Instant updates and synchronized data retrieval.
 * **Intuitive UI/UX:** A clean, responsive design built for ease of use across both desktop and mobile devices.
 * **Cloud Storage Integration:** Reliable backend architecture for secure document hosting and retrieval.
-* **Custom Cover Page Generator:** (Optional/If applicable) Built-in tool to quickly generate formatted academic cover pages.
 
 ## 🛠️ Built With
 
@@ -22,8 +21,8 @@ This project was built using modern web development technologies:
 
 * **Frontend:** React.js, HTML5, CSS3, JavaScript (ES6+)
 * **Backend / Database:** Firebase (Realtime Database / Firestore)
-* **Storage:** Firebase Storage / Google Drive API Integration
-* **Hosting:** Firebase Hosting / Vercel (Adjust as needed)
+* **Storage:** Google Drive API Integration
+* **Hosting:** Supabase hosting
 
 ## 🚀 Getting Started
 
