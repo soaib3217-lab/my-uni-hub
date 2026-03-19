@@ -20,7 +20,7 @@
 This project was built using modern web development technologies:
 
 * **Frontend:** React.js, HTML5, CSS3, JavaScript (ES6+)
-* **Backend / Database:** Firebase (Realtime Database / Firestore)
+* **Backend / Database:** Supabase (Realtime Database)
 * **Storage:** Google Drive API Integration
 * **Hosting:** Supabase hosting
 
