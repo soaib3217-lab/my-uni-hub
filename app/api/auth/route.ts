@@ -1,150 +1,60 @@
 import { NextResponse } from 'next/server';
+import { createClient } from '@supabase/supabase-js';
+
+// 🔌 Initialize Supabase connection for the server
+const supabase = createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+);
 
 export async function POST(request: Request) {
     try {
         const body = await request.json();
         const { id } = body;
 
-        // Pull the actual secret password from your secure .env file
+        // 👑 1. Check for Admin First (Still hidden in .env.local)
         const actualAdminId = process.env.ADMIN_SECRET_PASSWORD;
 
         if (id === actualAdminId) {
-            // Success! Send back the user object WITH the admin role
             return NextResponse.json({
                 success: true,
                 user: {
                     id: 'admin_user',
                     name: 'Super Admin',
-                    role: 'admin' // <-- This unlocks the delete button on the frontend
+                    role: 'admin' 
                 }
             });
         }
 
-        // If you have regular student login logic, put it here...
+        // 🎓 2. Check the Supabase Database for the Student ID
+        const { data: student, error } = await supabase
+            .from('students')
+            .select('*')
+            .eq('id', id)
+            .single(); // .single() grabs exactly one match
 
-        // 🔒 This list is now HIDDEN on the server.
-const VALID_USERS = [
-    { id: "686432", name: "Supreme Administrator" },
-    { id: "B230304071", name: "MST. MAHBUBA KHATUN" },
-    { id: "B230304072", name: "VABNA RANI" },
-    { id: "B230304074", name: "UDAY KUMER BORMON" },
-    { id: "B230304075", name: "SAKIBA ISLAM" },
-    { id: "B230304076", name: "JANNATUL FERDUSI" },
-    { id: "B230304077", name: "MD SADIDUR RAHMAN BHUIYA" },
-    { id: "B230304078", name: "ANIKA TAHSIN RAHMAN" },
-    { id: "B230304079", name: "MAHATHIR MOHAMMAD" },
-    { id: "B230304080", name: "RUBAET FERDOUS NIBIR" },
-    { id: "B230304081", name: "MD. FAHIM HOSSAIN" },
-    { id: "B220304055", name: "TANJIA TABASSUM" },
-    { id: "B230304001", name: "SHAITY BISWAS" },
-    { id: "B230304024", name: "SADIA RAHMAN" },
-    { id: "B230304038", name: "IMTIAZ KABIR SHAOWN" },
-    { id: "B230304062", name: "SADIA SULTANA SORNALI" },
-    { id: "B230304084", name: "SHAMIM" },
-    { id: "B230304085", name: "JANNATUL FERDOUS RIA" },
-    { id: "B240304001", name: "SADNAN SAMI" },
-    { id: "B240304002", name: "HRITHIK KUMAR SUTRADAR" },
-    { id: "B240304003", name: "EKBAL HASAN JIHAD" },
-    { id: "B240304004", name: "MAJEDA KHATUN" },
-    { id: "B240304005", name: "ARFANA TUN SINDA" },
-    { id: "B240304006", name: "UMME HABIBA SYNTHEA" },
-    { id: "B240304007", name: "AFRIN AKTER ANIKA" },
-    { id: "B240304008", name: "MD. ABDUL OYADUD" },
-    { id: "B240304009", name: "MIRZA ROHAN" },
-    { id: "B240304010", name: "DHRUBO MANDOL" },
-    { id: "B240304011", name: "MD KAMRUL HASAN" },
-    { id: "B240304012", name: "SHANTA DAS" },
-    { id: "B240304013", name: "SUSAMA SAHA" },
-    { id: "B240304014", name: "FAIYAZ AHMED TUTUL" },
-    { id: "B240304015", name: "MUNTASHIR RAHMAN ANANN" },
-    { id: "B240304016", name: "MAHMUDUR RAHMAN MUZAHID" },
-    { id: "B240304017", name: "MD. RISAT MIM" },
-    { id: "B240304018", name: "LABIBA RAHMAN" },
-    { id: "B240304019", name: "ONOY CHANDRA SAHA" },
-    { id: "B240304020", name: "MD. MASUD RANA" },
-    { id: "B240304021", name: "MD. PAVEL ANAM" },
-    { id: "B240304022", name: "MOST. NAHIDA AKTHER SORNA" },
-    { id: "B240304023", name: "MD. RIFAT HOSSAIN" },
-    { id: "B240304024", name: "PALLAB DAS" },
-    { id: "B240304025", name: "MUSKAN JAMIL" },
-    { id: "B240304026", name: "MD. SHAHRIAR NAFIZ SHAON" },
-    { id: "B240304027", name: "MD. TAMIM HOSSAIN MOLLA" },
-    { id: "B240304028", name: "MEHEDI HASAN" },
-    { id: "B240304029", name: "JISANUR RAHMAN TUFAN" },
-    { id: "B240304030", name: "MD. MUNIF HOSSAIN" },
-    { id: "B240304031", name: "MD. MUDACCHIR RAHMAN SAMIR" },
-    { id: "B240304032", name: "MST MARJIA SULTANA" },
-    { id: "B240304033", name: "ATIA SAIDA ONIMA" },
-    { id: "B240304034", name: "SABIHA NISHAT" },
-    { id: "B240304035", name: "MST. RISHAT TASFIA" },
-    { id: "B240304036", name: "MD. HASIBUR RAHMAN" },
-    { id: "B240304037", name: "FARHANA AFRIN" },
-    { id: "B240304038", name: "MD. HABIB SHEIKH" },
-    { id: "B240304039", name: "SAMIHA FAIROJ" },
-    { id: "B240304040", name: "MD NASIR SHEIKH" },
-    { id: "B240304041", name: "ARAFATUL ISLAM" },
-    { id: "B240304042", name: "MD. ARIFUL ISLAM CHOWDHURY SUNMOON" },
-    { id: "B240304043", name: "ANIMASH DEV NATH UZZAL" },
-    { id: "B240304044", name: "MD. ARNOB" },
-    { id: "B240304045", name: "MD. MINHAJUL ABEDIN SURKAR MINAR" },
-    { id: "B240304046", name: "MD. RIFAT HOSSAIN" },
-    { id: "B240304047", name: "MD. TANZIL ISLAM RAFI" },
-    { id: "B240304048", name: "MD. MOKSHEDUL MOMIN" },
-    { id: "B240304049", name: "MD. OBAYED HASAN" },
-    { id: "B240304050", name: "SAROAR JAHAN" },
-    { id: "B240304051", name: "TAHIA TASNIM" },
-    { id: "B240304052", name: "MD. NIAMUL ISLAM SIAM" },
-    { id: "B240304053", name: "SHAFAYET RAHMAN KHAN SHAFIN" },
-    { id: "B240304054", name: "MD MAHIN ISLAM" },
-    { id: "B240304055", name: "MASUMA AKTER LABONI" },
-    { id: "B240304056", name: "KANIZ FATEMA" },
-    { id: "B240304057", name: "MD. BOKHTIYER HABIB BIPLOB" },
-    { id: "B240304058", name: "JUNAIDA AFROSE" },
-    { id: "B240304059", name: "MD. AWAL" },
-    { id: "B240304060", name: "RAISA AFRIN SARAH" },
-    { id: "B240304061", name: "ASHIK AHMED" },
-    { id: "B240304062", name: "AISHI MAZUMDER" },
-    { id: "B240304063", name: "MITHILA MAMUN OISHE" },
-    { id: "B240304064", name: "PARIJAT SAHA PREKSHA" },
-    { id: "B240304065", name: "MD. AHNAF BHUIYAN TANZIM" },
-    { id: "B240304066", name: "PROGGYA TAHSIN" },
-    { id: "B240304067", name: "SUKANYA SAHA" },
-    { id: "B240304068", name: "TAWSIN ISLAM" },
-    { id: "B240304069", name: "MD. OHIDUL ISLAM" },
-    { id: "B240304070", name: "FAIJA HABIB" },
-    { id: "B240304071", name: "ABDUR RAHMAN" },
-    { id: "B240304072", name: "SADIA AKTHER" },
-    { id: "B240304073", name: "Α.Ν.M. AKRAMUZZAMAN" },
-    { id: "B240304074", name: "GORGE ROY" },
-    { id: "B240304075", name: "MD. ALIF AHMED SAJIB" },
-    { id: "B240304076", name: "MD.SAMIULLAH BASIR" },
-    { id: "B240304077", name: "S. M. ARIYAN ROKKAN" },
-    { id: "B240304078", name: "ISRAT JAHAN LAMIΑ" },
-    { id: "B240304079", name: "MD. SADIKUR RAHMAN" },
-    { id: "B240304080", name: "AZMAN MAHTAB SHAFIN" },
-    { id: "B240304081", name: "PROTAY BISWAS" },
-    { id: "B240304082", name: "NOWSHIN FAREHA TIABA" }
-];
+        if (error && error.code !== 'PGRST116') {
+             // PGRST116 just means "no rows found", any other error is a real database issue
+             console.error("Supabase Error:", error);
+        }
 
-  // 👇 ADD THIS NEW CHECK HERE 👇
-        const foundUser = VALID_USERS.find(user => user.id === id);
-
-        if (foundUser) {
-            // It's a valid student! Let them in.
+        // 🟢 3. If student exists in the database, log them in!
+        if (student) {
             return NextResponse.json({
                 success: true,
                 user: {
-                    id: foundUser.id,
-                    name: foundUser.name,
-                    role: 'student' // They get the student role, not admin
+                    id: student.id,
+                    name: student.name,
+                    role: 'student'
                 }
             });
         }
-        // 👆 END OF NEW CHECK 👆
 
+        // ❌ 4. If not Admin AND not in the database, reject.
         return NextResponse.json({ success: false, error: "Invalid ID" }, { status: 401 });
 
     } catch (error) {
+        console.error("Server Auth Error:", error);
         return NextResponse.json({ success: false, error: "Server error" }, { status: 500 });
     }
 }
