@@ -22,7 +22,6 @@ const supabase = createClient(
 );
 
 const GOOGLE_SCRIPT_URL = process.env.NEXT_PUBLIC_GOOGLE_SCRIPT_URL!;
-const SUPREME_ADMIN_ID = "686432"; 
 
 function getDriveThumbnail(url: string) {
     if (!url) return null;
@@ -90,8 +89,8 @@ export default function Home() {
   const [suggestedQuestions, setSuggestedQuestions] = useState<string[]>([]);
   const chatScrollRef = useRef<HTMLDivElement>(null);
   
-  // Auth & Admin States
-  const [currentUser, setCurrentUser] = useState<{id: string, name: string} | null>(null);
+ // Auth & Admin States
+  const [currentUser, setCurrentUser] = useState<{id: string, name: string, role?: string} | null>(null); // <-- Update THIS one
   const [showAdminModal, setShowAdminModal] = useState(false);
   const [loginIdInput, setLoginIdInput] = useState("");
   
@@ -361,10 +360,11 @@ export default function Home() {
     }, 500);
   }
 
-  async function handleDeleteFile(file: any) {
+ async function handleDeleteFile(file: any) {
     if (!confirm("Are you sure? This will delete the file from Google Drive and the website.")) return;
     
-    if (currentUser?.id !== SUPREME_ADMIN_ID && file.uploader !== currentUser?.name) {
+    // 👇 NEW SECURITY CHECK: Rely on the role assigned by the backend
+    if (currentUser?.role !== 'admin' && file.uploader !== currentUser?.name) {
         return alert("Permission Denied: You can only delete files you uploaded.");
     }
 
@@ -626,11 +626,11 @@ export default function Home() {
                 </AnimatePresence>
             </div>
         ) : (
-            // 🟢 FIXED: Added min-h-0 and overflow-hidden here to force scroll
+            // 🟢 FIXED: Added min-h-0 and overflow-hidden here to force scroll, added flex-col to parent
             <div className="flex-1 flex flex-col bg-[#09090b] overflow-hidden min-h-0">
-               <div className="flex-1 p-4 md:p-8 overflow-y-auto custom-scrollbar">
+               <div className="flex-1 p-4 md:p-8 overflow-y-auto custom-scrollbar flex flex-col">
                    {dashboardFiles.length > 0 ? (
-                       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+                       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 mb-8">
                            {dashboardFiles.map((file) => (
                                <div key={file.id} className="group bg-[#18181b] border border-white/5 hover:border-indigo-500/30 p-4 rounded-xl transition-all hover:shadow-2xl hover:shadow-indigo-900/10 flex flex-col gap-3 relative cursor-pointer overflow-hidden" onClick={() => setSelectedFile(file)}>
                                        
@@ -657,8 +657,38 @@ export default function Home() {
                            ))}
                        </div>
                    ) : (
-                       <div className="flex flex-col items-center justify-center h-full text-gray-500 gap-4 opacity-50"><Grid size={48} className="text-indigo-900"/><p>No notes found. Upload some!</p></div>
+                       <div className="flex-1 flex flex-col items-center justify-center text-gray-500 gap-4 opacity-50 mb-8"><Grid size={48} className="text-indigo-900"/><p>No notes found. Upload some!</p></div>
                    )}
+{/* ✨ VISUALLY INTERESTING FUTURISTIC FOOTER ✨ */}
+<div className="mt-auto pt-8 pb-4 w-full flex justify-center items-center">
+     <div className="relative group cursor-default">
+         {/* Neon glowing backdrop */}
+         <div className="absolute -inset-1 bg-gradient-to-r from-cyan-500 via-purple-600 to-fuchsia-500 rounded-xl blur-md opacity-30 group-hover:opacity-60 transition duration-700 animate-pulse"></div>
+         
+         {/* Inner Cyberpunk Badge */}
+         <div className="relative flex flex-col items-center justify-center gap-1.5 px-8 py-3 bg-[#09090b]/90 backdrop-blur-xl border border-white/10 rounded-xl shadow-[0_0_20px_rgba(0,0,0,0.5)] overflow-hidden">
+             {/* Top subtle scanline/laser effect */}
+             <div className="absolute top-0 left-0 w-full h-[1px] bg-gradient-to-r from-transparent via-cyan-400 to-transparent opacity-50"></div>
+             
+             <span className="text-[9px] font-mono tracking-[0.4em] text-cyan-400/80 uppercase">
+                 Developed By
+             </span>
+             
+             <div className="flex items-center gap-3">
+                 <Sparkles size={12} className="text-fuchsia-400 animate-pulse" />
+                 <span className="text-sm font-bold tracking-widest text-transparent bg-clip-text bg-gradient-to-r from-cyan-300 via-white to-fuchsia-300 uppercase">
+                     MUNIF <span className="text-white/40 lowercase mx-0.5 font-light">x</span> VIBE CODING
+                 </span>
+                 <Sparkles size={12} className="text-cyan-400 animate-pulse" />
+             </div>
+             
+             {/* Tech corner accents */}
+             <div className="absolute bottom-0 right-0 w-2.5 h-2.5 border-b border-r border-cyan-500/50 rounded-br-sm"></div>
+             <div className="absolute top-0 left-0 w-2.5 h-2.5 border-t border-l border-fuchsia-500/50 rounded-tl-sm"></div>
+         </div>
+     </div>
+</div>
+
                </div>
             </div>
         )}

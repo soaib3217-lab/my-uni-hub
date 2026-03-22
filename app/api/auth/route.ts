@@ -1,6 +1,28 @@
-import { NextResponse } from "next/server";
+import { NextResponse } from 'next/server';
 
-// 🔒 This list is now HIDDEN on the server.
+export async function POST(request: Request) {
+    try {
+        const body = await request.json();
+        const { id } = body;
+
+        // Pull the actual secret password from your secure .env file
+        const actualAdminId = process.env.ADMIN_SECRET_PASSWORD;
+
+        if (id === actualAdminId) {
+            // Success! Send back the user object WITH the admin role
+            return NextResponse.json({
+                success: true,
+                user: {
+                    id: 'admin_user',
+                    name: 'Super Admin',
+                    role: 'admin' // <-- This unlocks the delete button on the frontend
+                }
+            });
+        }
+
+        // If you have regular student login logic, put it here...
+
+        // 🔒 This list is now HIDDEN on the server.
 const VALID_USERS = [
     { id: "686432", name: "Supreme Administrator" },
     { id: "B230304071", name: "MST. MAHBUBA KHATUN" },
@@ -104,18 +126,25 @@ const VALID_USERS = [
     { id: "B240304082", name: "NOWSHIN FAREHA TIABA" }
 ];
 
-export async function POST(req: Request) {
-  try {
-    const { id } = await req.json();
+  // 👇 ADD THIS NEW CHECK HERE 👇
+        const foundUser = VALID_USERS.find(user => user.id === id);
 
-    const user = VALID_USERS.find(u => u.id === id);
+        if (foundUser) {
+            // It's a valid student! Let them in.
+            return NextResponse.json({
+                success: true,
+                user: {
+                    id: foundUser.id,
+                    name: foundUser.name,
+                    role: 'student' // They get the student role, not admin
+                }
+            });
+        }
+        // 👆 END OF NEW CHECK 👆
 
-    if (user) {
-      return NextResponse.json({ success: true, user });
-    } else {
-      return NextResponse.json({ success: false, error: "Invalid ID" }, { status: 401 });
+        return NextResponse.json({ success: false, error: "Invalid ID" }, { status: 401 });
+
+    } catch (error) {
+        return NextResponse.json({ success: false, error: "Server error" }, { status: 500 });
     }
-  } catch (error) {
-    return NextResponse.json({ error: "Server error" }, { status: 500 });
-  }
 }
