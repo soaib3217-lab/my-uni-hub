@@ -8,7 +8,10 @@ export async function POST(req: Request) {
   try {
     const { message, context } = await req.json();
     
-    const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
+   const model = genAI.getGenerativeModel(
+  { model: "gemini-3.1-flash-lite-preview" },
+  { apiVersion: "v1beta" } 
+);
     
     // Construct the prompt with context (if available)
     let prompt = message;
