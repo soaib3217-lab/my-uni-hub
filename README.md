@@ -4,7 +4,7 @@
   <p><strong>A centralized, web-based platform for managing, storing, and organizing university notes and academic resources.</strong></p>
 </div>
 
-![Project Banner](./assets/Untitled design.png)
+![Project Banner](./assets/Untitled_design.png)
 
 ---
 
