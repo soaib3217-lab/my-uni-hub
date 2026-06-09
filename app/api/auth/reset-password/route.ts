@@ -15,10 +15,12 @@ export async function POST(request: Request) {
             return NextResponse.json({ success: false, error: "Missing required fields" }, { status: 400 });
         }
 
+        const studentId = id.trim().toUpperCase();
+
         const { data: student, error } = await supabase
             .from('students')
             .select('otp_code, otp_expiry')
-            .eq('id', id)
+            .eq('id', studentId)
             .single();
 
         if (error || !student) {
@@ -38,7 +40,7 @@ export async function POST(request: Request) {
         const { error: updateError } = await supabase
             .from('students')
             .update({ password_hash, otp_code: null, otp_expiry: null })
-            .eq('id', id);
+            .eq('id', studentId);
 
         if (updateError) throw updateError;
 

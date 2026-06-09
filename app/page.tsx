@@ -833,7 +833,7 @@ export default function Home() {
                                         {(authMode === 'login' || authMode === 'register' || authMode === 'forgot_password' || authMode === 'reset_password') && (
                                             <div className="relative">
                                                 <Lock size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500" />
-                                                <input type="text" placeholder="STUDENT ID" className="w-full bg-black/40 border border-white/10 pl-9 pr-3 py-3 rounded-lg text-white font-mono text-sm outline-none focus:border-white/20 focus:bg-black/60 transition-all uppercase" value={authForm.id} onChange={(e) => setAuthForm({ ...authForm, id: e.target.value })} disabled={isAuthLoading || authMode === 'reset_password'} />
+                                                <input type="text" placeholder="STUDENT ID" className="w-full bg-black/40 border border-white/10 pl-9 pr-3 py-3 rounded-lg text-white font-mono text-sm outline-none focus:border-white/20 focus:bg-black/60 transition-all uppercase" value={authForm.id} onChange={(e) => setAuthForm({ ...authForm, id: e.target.value.toUpperCase() })} disabled={isAuthLoading || authMode === 'reset_password'} />
                                             </div>
                                         )}
 

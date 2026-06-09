@@ -30,10 +30,11 @@ export async function POST(request: Request) {
         }
 
         // Fetch student from database
+        const studentId = id ? id.trim().toUpperCase() : '';
         const { data: student, error } = await supabase
             .from('students')
             .select('*')
-            .eq('id', id)
+            .eq('id', studentId)
             .single();
 
         if (error && error.code !== 'PGRST116') {
@@ -59,7 +60,7 @@ export async function POST(request: Request) {
             const { error: updateError } = await supabase
                 .from('students')
                 .update({ password_hash, email })
-                .eq('id', id);
+                .eq('id', studentId);
 
             if (updateError) throw updateError;
 
