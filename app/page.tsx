@@ -7,7 +7,7 @@ import {
     Trash2, Plus, Upload, Lock, Unlock, FileText, Send, X,
     ChevronRight, ChevronDown, Folder, Sparkles, MessageSquare,
     Minimize2, Loader2, GraduationCap, Menu, Search, FolderPlus,
-    File, User, Lightbulb, Grid, Home as HomeIcon
+    File, User, Lightbulb, Grid, Home as HomeIcon, MoreVertical, ExternalLink
 } from 'lucide-react';
 
 import ReactMarkdown from 'react-markdown';
@@ -81,6 +81,7 @@ export default function Home() {
     const [isAiOpen, setIsAiOpen] = useState(false);
     const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
     const [searchTerm, setSearchTerm] = useState("");
+    const [isHeaderMenuOpen, setIsHeaderMenuOpen] = useState(false);
 
     // Chat States
     const [chatInput, setChatInput] = useState("");
@@ -98,14 +99,14 @@ export default function Home() {
 
     // Cover Generator State
     const [showCoverGenerator, setShowCoverGenerator] = useState(false);
-    const [coverDetails, setCoverDetails] = useState({ 
-        assignmentNo: "", 
-        courseName: "", 
-        courseCode: "", 
-        submittedTo: "", 
-        submittedBy: "", 
+    const [coverDetails, setCoverDetails] = useState({
+        assignmentNo: "",
+        courseName: "",
+        courseCode: "",
+        submittedTo: "",
+        submittedBy: "",
         studentId: "",
-        date: "" 
+        date: ""
     });
 
     // Upload/Folder States
@@ -146,6 +147,7 @@ export default function Home() {
         if (selectedFile) {
             setChatHistory([]);
             setSuggestedQuestions([]);
+            setIsHeaderMenuOpen(false);
         }
     }, [selectedFile]);
 
@@ -583,8 +585,8 @@ export default function Home() {
                         </div>
                     )) : (
                         <div className="h-full flex flex-col items-center justify-center opacity-50 p-4 text-center">
-                             <Lock size={32} className="mb-2 text-cyan-500"/>
-                             <p className="text-xs font-mono text-cyan-400 uppercase tracking-widest mt-2">Login Required</p>
+                            <Lock size={32} className="mb-2 text-cyan-500" />
+                            <p className="text-xs font-mono text-cyan-400 uppercase tracking-widest mt-2">Login Required</p>
                         </div>
                     )}
                 </div>
@@ -637,7 +639,7 @@ export default function Home() {
                     <div className="flex-1 flex flex-col md:flex-row overflow-hidden p-0 md:p-4 gap-4 relative">
                         {/* PDF Viewer Area */}
                         <motion.div layout className="flex-1 bg-[#0a0a0c]/80 backdrop-blur-xl md:rounded-xl border-x md:border border-white/10 overflow-hidden shadow-[0_8px_32px_rgba(0,0,0,0.5)] relative flex flex-col">
-                            <div className="h-14 bg-[#0d0d10]/50 border-b border-white/5 flex items-center justify-between px-4 gap-2">
+                            <div className="h-14 bg-[#0d0d10]/50 border-b border-white/5 flex items-center justify-between px-4 gap-2 relative">
                                 <button onClick={handleGoHome} className="md:hidden mr-2 text-cyan-600 hover:text-cyan-400 transition">
                                     <HomeIcon size={20} />
                                 </button>
@@ -648,7 +650,75 @@ export default function Home() {
                                     </div>
                                     <span className="text-sm font-bold text-gray-100 truncate mt-1 tracking-wide">{selectedFile.title}</span>
                                 </div>
-                                <a href={selectedFile.pdf_url} target="_blank" className="text-xs text-cyan-400 hover:text-white font-bold whitespace-nowrap ml-2 border border-white/10 px-3 py-1.5 rounded-lg hover:bg-white/5 transition uppercase tracking-wider">External</a>
+                                <a href={selectedFile.pdf_url} target="_blank" className="hidden md:inline-flex text-xs text-cyan-400 hover:text-white font-bold whitespace-nowrap ml-2 border border-white/10 px-3 py-1.5 rounded-lg hover:bg-white/5 transition uppercase tracking-wider">External</a>
+
+                                {/* Mobile 3-Dot Menu */}
+                                <div className="relative md:hidden flex items-center">
+                                    <button onClick={() => setIsHeaderMenuOpen(!isHeaderMenuOpen)} className="p-2 text-cyan-400 hover:text-cyan-300 hover:bg-white/5 rounded-lg border border-white/5 transition-all">
+                                        <MoreVertical size={20} />
+                                    </button>
+
+                                    {isHeaderMenuOpen && (
+                                        <div className="fixed inset-0 z-40" onClick={() => setIsHeaderMenuOpen(false)} />
+                                    )}
+
+                                    <AnimatePresence>
+                                        {isHeaderMenuOpen && (
+                                            <motion.div
+                                                initial={{ opacity: 0, scale: 0.95, y: -10 }}
+                                                animate={{ opacity: 1, scale: 1, y: 0 }}
+                                                exit={{ opacity: 0, scale: 0.95, y: -10 }}
+                                                transition={{ duration: 0.15 }}
+                                                className="absolute right-0 top-full mt-2 w-48 bg-[#0a0a0c]/95 backdrop-blur-xl border border-white/10 rounded-xl shadow-[0_8px_32px_rgba(0,0,0,0.5)] z-50 overflow-hidden"
+                                            >
+                                                <div className="absolute top-0 left-0 w-full h-[1px] bg-gradient-to-r from-transparent via-cyan-400/30 to-transparent"></div>
+                                                <div className="p-1.5 flex flex-col gap-1">
+                                                    <button
+                                                        onClick={() => {
+                                                            setIsMobileMenuOpen(true);
+                                                            setIsHeaderMenuOpen(false);
+                                                        }}
+                                                        className="flex items-center gap-2 px-3 py-2 text-xs font-mono uppercase text-gray-300 hover:text-white hover:bg-white/5 rounded-lg transition-colors text-left w-full"
+                                                    >
+                                                        <Menu size={14} className="text-cyan-400" />
+                                                        <span>Browse Library</span>
+                                                    </button>
+                                                    <button
+                                                        onClick={() => {
+                                                            setIsAiOpen(!isAiOpen);
+                                                            setIsHeaderMenuOpen(false);
+                                                        }}
+                                                        className="flex items-center gap-2 px-3 py-2 text-xs font-mono uppercase text-gray-300 hover:text-white hover:bg-white/5 rounded-lg transition-colors text-left w-full"
+                                                    >
+                                                        <MessageSquare size={14} className="text-fuchsia-400" />
+                                                        <span>Tutor AI</span>
+                                                    </button>
+                                                    <a
+                                                        href={selectedFile.pdf_url}
+                                                        target="_blank"
+                                                        rel="noopener noreferrer"
+                                                        onClick={() => setIsHeaderMenuOpen(false)}
+                                                        className="flex items-center gap-2 px-3 py-2 text-xs font-mono uppercase text-gray-300 hover:text-white hover:bg-white/5 rounded-lg transition-colors text-left w-full"
+                                                    >
+                                                        <ExternalLink size={14} className="text-cyan-400" />
+                                                        <span>External Link</span>
+                                                    </a>
+                                                    <div className="h-[1px] bg-white/5 my-1"></div>
+                                                    <button
+                                                        onClick={() => {
+                                                            handleGoHome();
+                                                            setIsHeaderMenuOpen(false);
+                                                        }}
+                                                        className="flex items-center gap-2 px-3 py-2 text-xs font-mono uppercase text-red-400 hover:text-red-300 hover:bg-red-500/10 rounded-lg transition-colors text-left w-full"
+                                                    >
+                                                        <HomeIcon size={14} className="text-red-400" />
+                                                        <span>Go Home</span>
+                                                    </button>
+                                                </div>
+                                            </motion.div>
+                                        )}
+                                    </AnimatePresence>
+                                </div>
                             </div>
 
                             <iframe src={selectedFile.pdf_url} className="flex-1 w-full bg-[#121212]" title="Preview" />
@@ -1006,11 +1076,11 @@ export default function Home() {
                             <input className="bg-black/40 border border-white/10 p-3 rounded-lg text-white font-mono text-xs focus:border-cyan-500/50 outline-none w-full" placeholder="Assignment no:" value={coverDetails.assignmentNo} onChange={e => setCoverDetails({ ...coverDetails, assignmentNo: e.target.value })} />
                             <input className="bg-black/40 border border-white/10 p-3 rounded-lg text-white font-mono text-xs focus:border-cyan-500/50 outline-none w-full" placeholder="Course Name:" value={coverDetails.courseName} onChange={e => setCoverDetails({ ...coverDetails, courseName: e.target.value })} />
                             <input className="bg-black/40 border border-white/10 p-3 rounded-lg text-white font-mono text-xs focus:border-cyan-500/50 outline-none w-full" placeholder="Course Code:" value={coverDetails.courseCode} onChange={e => setCoverDetails({ ...coverDetails, courseCode: e.target.value })} />
-                            
+
                             <textarea className="bg-black/40 border border-white/10 p-3 rounded-lg text-white font-mono text-xs focus:border-cyan-500/50 outline-none w-full resize-none h-24" placeholder="Submitted to:&#10;Dr. XYZ&#10;Professor..." value={coverDetails.submittedTo} onChange={e => setCoverDetails({ ...coverDetails, submittedTo: e.target.value })} />
-                            
+
                             <textarea className="bg-black/40 border border-white/10 p-3 rounded-lg text-white font-mono text-xs focus:border-cyan-500/50 outline-none w-full resize-none h-24" placeholder="Submitted by:&#10;Munif&#10;Section: A" value={coverDetails.submittedBy} onChange={e => setCoverDetails({ ...coverDetails, submittedBy: e.target.value })} />
-                            
+
                             <input className="bg-black/40 border border-white/10 p-3 rounded-lg text-white font-mono text-xs focus:border-cyan-500/50 outline-none w-full" type="text" placeholder="Student ID (e.g. B21...)" value={coverDetails.studentId} onChange={e => setCoverDetails({ ...coverDetails, studentId: e.target.value })} />
 
                             <input className="bg-black/40 border border-white/10 p-3 rounded-lg text-white font-mono text-xs focus:border-cyan-500/50 outline-none w-full" type="text" placeholder="Submission Date (e.g. 10 October 2026)" value={coverDetails.date} onChange={e => setCoverDetails({ ...coverDetails, date: e.target.value })} />
@@ -1023,46 +1093,46 @@ export default function Home() {
                                 {/* A4 Paper */}
                                 <div className="bg-white w-[210mm] min-h-[297mm] shadow-2xl px-[20mm] pb-[20mm] pt-[15mm] text-black font-sans relative print:shadow-none print:w-[210mm] print:h-[297mm] print:p-0 flex flex-col justify-start">
                                     <div className="text-center mb-16">
-                                    <img src="/logo.png" alt="University Logo" className="h-40 mx-auto mb-4 object-contain" onError={(e) => { e.currentTarget.style.display = 'none'; }} />
-                                    <h2 className="text-[20px] font-bold uppercase tracking-widest leading-tight">DEPARTMENT OF STATISTICS</h2>
-                                    <h1 className="text-[32px] font-black uppercase tracking-widest mt-1">JAGANNATH UNIVERSITY</h1>
-                                </div>
+                                        <img src="/logo.png" alt="University Logo" className="h-40 mx-auto mb-4 object-contain" onError={(e) => { e.currentTarget.style.display = 'none'; }} />
+                                        <h2 className="text-[20px] font-bold uppercase tracking-widest leading-tight">DEPARTMENT OF STATISTICS</h2>
+                                        <h1 className="text-[32px] font-black uppercase tracking-widest mt-1">JAGANNATH UNIVERSITY</h1>
+                                    </div>
 
-                                <div className="w-[90%] mx-auto space-y-8 text-[22px] mt-8" style={{ fontFamily: '"Times New Roman", Times, serif' }}>
-                                    <div className="flex gap-4">
-                                        <span className="font-bold italic w-44 shrink-0 flex justify-between items-end"><span>Assignment no</span><span>:</span></span>
-                                        <span className="flex-1 min-h-[30px] border-b border-black outline-none flex items-end">{coverDetails.assignmentNo}</span>
+                                    <div className="w-[90%] mx-auto space-y-8 text-[22px] mt-8" style={{ fontFamily: '"Times New Roman", Times, serif' }}>
+                                        <div className="flex gap-4">
+                                            <span className="font-bold italic w-44 shrink-0 flex justify-between items-end"><span>Assignment no</span><span>:</span></span>
+                                            <span className="flex-1 min-h-[30px] border-b border-black outline-none flex items-end">{coverDetails.assignmentNo}</span>
+                                        </div>
+                                        <div className="flex gap-4">
+                                            <span className="font-bold italic w-44 shrink-0 flex justify-between items-end"><span>Course Name</span><span>:</span></span>
+                                            <span className="flex-1 min-h-[30px] border-b border-black outline-none flex items-end">{coverDetails.courseName}</span>
+                                        </div>
+                                        <div className="flex gap-4">
+                                            <span className="font-bold italic w-44 shrink-0 flex justify-between items-end"><span>Course Code</span><span>:</span></span>
+                                            <span className="flex-1 min-h-[30px] border-b border-black outline-none flex items-end">{coverDetails.courseCode}</span>
+                                        </div>
+                                        <div className="flex gap-4 items-start">
+                                            <span className="font-bold italic w-44 shrink-0 mt-1 flex justify-between"><span>Submitted to</span><span>:</span></span>
+                                            <span className="flex-1 whitespace-pre-wrap leading-tight border-b border-black outline-none min-h-[30px] mt-1">{coverDetails.submittedTo}</span>
+                                        </div>
+                                        <div className="flex gap-4 items-start">
+                                            <span className="font-bold italic w-44 shrink-0 mt-1 flex justify-between"><span>Submitted by</span><span>:</span></span>
+                                            <span className="flex-1 whitespace-pre-wrap leading-tight border-b border-black outline-none min-h-[30px] mt-1">{coverDetails.submittedBy}</span>
+                                        </div>
+                                        <div className="flex gap-4">
+                                            <span className="font-bold italic w-44 shrink-0 flex justify-between items-end"><span>ID</span><span>:</span></span>
+                                            <span className="flex-1 min-h-[30px] border-b border-black outline-none flex items-end">{coverDetails.studentId}</span>
+                                        </div>
+                                        <div className="flex gap-4 mt-12">
+                                            <span className="font-bold italic w-44 shrink-0 flex justify-between items-end"><span>Submission Date</span><span>:</span></span>
+                                            <span className="flex-1 min-h-[30px] border-b border-black outline-none flex items-end">{coverDetails.date}</span>
+                                        </div>
                                     </div>
-                                    <div className="flex gap-4">
-                                        <span className="font-bold italic w-44 shrink-0 flex justify-between items-end"><span>Course Name</span><span>:</span></span>
-                                        <span className="flex-1 min-h-[30px] border-b border-black outline-none flex items-end">{coverDetails.courseName}</span>
-                                    </div>
-                                    <div className="flex gap-4">
-                                        <span className="font-bold italic w-44 shrink-0 flex justify-between items-end"><span>Course Code</span><span>:</span></span>
-                                        <span className="flex-1 min-h-[30px] border-b border-black outline-none flex items-end">{coverDetails.courseCode}</span>
-                                    </div>
-                                    <div className="flex gap-4 items-start">
-                                        <span className="font-bold italic w-44 shrink-0 mt-1 flex justify-between"><span>Submitted to</span><span>:</span></span>
-                                        <span className="flex-1 whitespace-pre-wrap leading-tight border-b border-black outline-none min-h-[30px] mt-1">{coverDetails.submittedTo}</span>
-                                    </div>
-                                    <div className="flex gap-4 items-start">
-                                        <span className="font-bold italic w-44 shrink-0 mt-1 flex justify-between"><span>Submitted by</span><span>:</span></span>
-                                        <span className="flex-1 whitespace-pre-wrap leading-tight border-b border-black outline-none min-h-[30px] mt-1">{coverDetails.submittedBy}</span>
-                                    </div>
-                                    <div className="flex gap-4">
-                                        <span className="font-bold italic w-44 shrink-0 flex justify-between items-end"><span>ID</span><span>:</span></span>
-                                        <span className="flex-1 min-h-[30px] border-b border-black outline-none flex items-end">{coverDetails.studentId}</span>
-                                    </div>
-                                    <div className="flex gap-4 mt-12">
-                                        <span className="font-bold italic w-44 shrink-0 flex justify-between items-end"><span>Submission Date</span><span>:</span></span>
-                                        <span className="flex-1 min-h-[30px] border-b border-black outline-none flex items-end">{coverDetails.date}</span>
-                                    </div>
-                                </div>
 
-                                <div className="absolute bottom-8 right-8">
-                                    <img src="/logo.png" alt="Bottom Logo" className="h-16 opacity-30 object-contain grayscale" onError={(e) => { e.currentTarget.style.display = 'none'; }} />
+                                    <div className="absolute bottom-8 right-8">
+                                        <img src="/logo.png" alt="Bottom Logo" className="h-16 opacity-30 object-contain grayscale" onError={(e) => { e.currentTarget.style.display = 'none'; }} />
+                                    </div>
                                 </div>
-                            </div>
                             </div>
                         </div>
                     </div>
