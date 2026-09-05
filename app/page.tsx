@@ -47,10 +47,36 @@ const FileThumbnail = ({ url, fileTitle }: { url: string, fileTitle: string }) =
         setHasError(false);
     }, [url]);
 
+    const getGradient = (title: string) => {
+        const char = title.charAt(0).toUpperCase();
+        if (char >= 'A' && char <= 'F') return 'from-blue-600/60 to-cyan-400/60';
+        if (char >= 'G' && char <= 'L') return 'from-purple-600/60 to-fuchsia-400/60';
+        if (char >= 'M' && char <= 'R') return 'from-indigo-600/60 to-blue-400/60';
+        return 'from-slate-600/60 to-slate-400/60';
+    };
+
     if (hasError || !imgSrc) {
+        const fileId = getFileIdFromUrl(url);
+        if (fileId) {
+            // Live iframe fallback if thumbnail API fails (Drive blocks hotlinking for some files)
+            return (
+                <div className="w-full h-full relative overflow-hidden bg-white/5 flex items-center justify-center">
+                    <iframe 
+                        src={`https://drive.google.com/file/d/${fileId}/preview`} 
+                        className="absolute top-[-55px] left-0 w-full h-[calc(100%+110px)] pointer-events-none" 
+                        loading="lazy" 
+                    />
+                    <div className="absolute inset-0 bg-transparent z-10" />
+                </div>
+            );
+        }
+
+        // Final graceful fallback if it's not a Drive link
         return (
-            <div className="w-full h-full flex items-center justify-center bg-[#1a1a1e]">
-                <FileText size={32} className="text-cyan-900/50" />
+            <div className={`w-full h-full flex items-center justify-center bg-gradient-to-br ${getGradient(fileTitle)} backdrop-blur-sm`}>
+                <div className="bg-white/10 p-4 rounded-full border border-white/20 shadow-[0_0_20px_rgba(255,255,255,0.1)]">
+                    <FileText size={32} className="text-white drop-shadow-md" />
+                </div>
             </div>
         );
     }
@@ -58,7 +84,7 @@ const FileThumbnail = ({ url, fileTitle }: { url: string, fileTitle: string }) =
     return (
         <img
             src={imgSrc}
-            className="w-full h-full object-cover opacity-70 group-hover:opacity-100 transition-opacity mix-blend-luminosity group-hover:mix-blend-normal"
+            className="w-full h-full object-cover opacity-90 group-hover:opacity-100 transition-opacity mix-blend-normal"
             alt={fileTitle}
             loading="lazy"
             onError={() => setHasError(true)}
@@ -66,7 +92,24 @@ const FileThumbnail = ({ url, fileTitle }: { url: string, fileTitle: string }) =
     );
 };
 
+const STAT_QUOTES = [
+    "90% of the world's data was generated in the last two years. Let's make sense of it.",
+    "Statistics: The grammar of science. — Karl Pearson",
+    "In God we trust, all others must bring data. — W. Edwards Deming",
+    "Without data, you're just another person with an opinion.",
+    "Errors using inadequate data are much less than those using no data at all."
+];
+
 export default function Home() {
+    const [quoteIndex, setQuoteIndex] = useState(0);
+
+    useEffect(() => {
+        const interval = setInterval(() => {
+            setQuoteIndex((prev) => (prev + 1) % STAT_QUOTES.length);
+        }, 5000);
+        return () => clearInterval(interval);
+    }, []);
+
     const [folders, setFolders] = useState<any[]>([]);
     const [files, setFiles] = useState<any[]>([]);
     const [selectedFile, setSelectedFile] = useState<any>(null);
@@ -462,16 +505,21 @@ export default function Home() {
     const dashboardFiles = files.filter(f => f.title.toLowerCase().includes(searchTerm));
 
     return (
-        <div className="flex h-[100dvh] bg-[#050505] text-gray-100 font-sans overflow-hidden">
+        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.5, ease: "easeOut" }} className="flex h-[100dvh] bg-transparent text-gray-100 font-sans overflow-hidden relative">
+            {/* Super fast animated background blobs (using radial gradients instead of expensive CSS blur) */}
+            <div className="absolute top-[-20%] left-[-10%] w-[70vw] h-[70vw] bg-[radial-gradient(circle_at_center,rgba(79,70,229,0.15)_0%,transparent_60%)] animate-blob pointer-events-none -z-10"></div>
+            <div className="absolute top-[10%] right-[-10%] w-[60vw] h-[60vw] bg-[radial-gradient(circle_at_center,rgba(147,51,234,0.12)_0%,transparent_60%)] animate-blob animation-delay-2000 pointer-events-none -z-10"></div>
+            <div className="absolute bottom-[-30%] left-[10%] w-[80vw] h-[80vw] bg-[radial-gradient(circle_at_center,rgba(37,99,235,0.12)_0%,transparent_60%)] animate-blob animation-delay-4000 pointer-events-none -z-10"></div>
+
             <AnimatePresence>
                 {isMobileMenuOpen && (
-                    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 bg-black/90 backdrop-blur-sm z-40 md:hidden" onClick={() => setIsMobileMenuOpen(false)} />
+                    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 bg-black/90 z-40 md:hidden" onClick={() => setIsMobileMenuOpen(false)} />
                 )}
             </AnimatePresence>
 
-            {/* ✨ CYBERPUNK SIDEBAR ✨ */}
-            <motion.div className={`fixed md:relative inset-y-0 left-0 w-80 bg-[#0a0a0c]/80 backdrop-blur-xl border-r border-white/10 flex flex-col z-50 transform transition-transform duration-300 ${isMobileMenuOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'} shadow-[4px_0_24px_rgba(0,0,0,0.5)]`}>
-                <div className="p-5 border-b border-white/5 flex flex-col gap-4 bg-[#0d0d10]/50 relative overflow-hidden">
+            {/* ✨ FROSTED SIDEBAR ✨ */}
+            <aside className={`fixed md:relative inset-y-0 left-0 w-80 bg-[#060913] md:bg-white/[0.03] md:backdrop-blur-3xl border-r border-white/10 flex flex-col z-50 transform transition-transform duration-300 ease-out will-change-transform ${isMobileMenuOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'} shadow-[4px_0_30px_rgba(0,0,0,0.5)]`}>
+                <div className="p-5 border-b border-white/5 flex flex-col gap-4 bg-transparent relative overflow-hidden">
                     {/* Top subtle line */}
                     <div className="absolute top-0 left-0 w-full h-[1px] bg-gradient-to-r from-transparent via-cyan-400/30 to-transparent"></div>
 
@@ -491,31 +539,45 @@ export default function Home() {
                         </button>
 
                         <div className="relative group flex-1">
-                            <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 group-focus-within:text-cyan-400 transition-colors" />
-                            <input className="w-full bg-[#121216]/80 text-xs text-cyan-100 pl-9 pr-3 py-2.5 rounded-lg outline-none border border-white/5 focus:border-cyan-500/30 focus:bg-[#0a0a0c] transition-all placeholder-gray-600 font-mono" placeholder="SCAN_FILES..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value.toLowerCase())} />
+                            <div className="absolute inset-0 bg-gradient-to-r from-cyan-500/10 to-fuchsia-500/10 rounded-full blur-md opacity-0 group-focus-within:opacity-100 transition-opacity duration-500"></div>
+                            <Search size={14} className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-500 group-focus-within:text-cyan-400 transition-colors z-10" />
+                            <input className="relative z-10 w-full bg-white/5 backdrop-blur-md text-xs text-cyan-50 pl-10 pr-4 py-2.5 rounded-full outline-none border border-white/10 focus:border-cyan-500/50 focus:bg-white/10 focus:shadow-[0_0_15px_rgba(6,182,212,0.2)] transition-all placeholder-gray-500 font-sans tracking-wide" placeholder="Search resources..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value.toLowerCase())} />
                         </div>
                     </div>
 
                     {currentUser && (
-                        <div className="flex items-center gap-3 bg-white/5 border border-white/10 p-2 rounded-lg backdrop-blur-sm relative overflow-hidden">
-                            <div className="absolute left-0 top-0 w-1 h-full bg-cyan-500/50"></div>
-                            <div className="w-8 h-8 rounded-full bg-gradient-to-br from-cyan-500/80 to-fuchsia-500/80 flex items-center justify-center text-xs font-bold text-white shadow-sm border border-white/20">
-                                {currentUser.name.charAt(0)}
+                        <motion.div 
+                            whileHover={{ scale: 1.02 }}
+                            whileTap={{ scale: 0.98 }}
+                            className="flex items-center gap-4 bg-gradient-to-r from-white/10 to-white/5 border border-white/20 p-2.5 rounded-[2rem] backdrop-blur-md relative overflow-hidden group cursor-pointer shadow-[0_8px_30px_rgba(0,0,0,0.12)]"
+                        >
+                            {/* Animated Background Glow */}
+                            <div className="absolute inset-0 bg-gradient-to-r from-cyan-500/0 via-cyan-500/20 to-fuchsia-500/0 opacity-0 group-hover:opacity-100 transition-opacity duration-500 rounded-[2rem] -z-0"></div>
+                            
+                            {/* Avatar */}
+                            <div className="relative w-10 h-10 rounded-full flex items-center justify-center text-sm font-black text-white shadow-[0_0_15px_rgba(6,182,212,0.4)] border-2 border-white/20 z-10 overflow-hidden">
+                                <div className="absolute inset-0 bg-gradient-to-br from-cyan-400 to-fuchsia-500 group-hover:scale-110 transition-transform duration-500"></div>
+                                <span className="relative z-10">{currentUser.name.charAt(0)}</span>
                             </div>
-                            <div className="flex-1 overflow-hidden">
-                                <p className="text-[9px] font-mono text-cyan-400/70 uppercase tracking-widest">Active User</p>
-                                <p className="text-xs font-bold text-white truncate">{currentUser.name}</p>
+                            
+                            {/* Info */}
+                            <div className="flex-1 overflow-hidden relative z-10">
+                                <p className="text-[9px] font-mono text-cyan-300 uppercase tracking-widest flex items-center gap-1.5 opacity-80 group-hover:opacity-100 transition-opacity">
+                                    <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse shadow-[0_0_5px_rgba(34,211,238,0.8)]"></span>
+                                    Active Session
+                                </p>
+                                <p className="text-xs font-bold text-white truncate drop-shadow-md tracking-wide mt-0.5">{currentUser.name}</p>
                             </div>
-                        </div>
+                        </motion.div>
                     )}
                 </div>
 
-                <div className="flex-1 overflow-y-auto p-3 space-y-1 custom-scrollbar">
+                <div className="flex-1 overflow-y-auto p-3 space-y-1 custom-scrollbar pb-20" style={{ transform: 'translateZ(0)', willChange: 'transform' }}>
                     {currentUser ? structure.map((yData) => (
                         <div key={yData.year}>
-                            <button onClick={() => toggleState(setExpandedYears, yData.year)} className="w-full flex items-center gap-3 p-2 hover:bg-white/5 rounded-lg text-sm font-semibold transition-all group">
+                            <button onClick={() => toggleState(setExpandedYears, yData.year)} className="w-full flex items-center gap-3 p-2 hover:bg-white/5 rounded-lg text-sm font-semibold transition-colors group">
                                 {expandedYears.includes(yData.year) ? <ChevronDown size={14} className="text-cyan-500 group-hover:text-cyan-400" /> : <ChevronRight size={14} className="text-gray-500 group-hover:text-cyan-400" />}
-                                <Folder size={14} className="text-cyan-500 fill-cyan-500/10 transition" />
+                                <Folder size={14} className="text-cyan-500 fill-cyan-500/10 transition-colors" />
                                 <span className="text-gray-300 group-hover:text-white font-mono uppercase tracking-wider text-xs">{yData.year}</span>
                             </button>
 
@@ -534,9 +596,9 @@ export default function Home() {
                                                         {sData.folders.length === 0 && <div className="text-[10px] text-gray-700 pl-2 font-mono">NO_DATA_FOUND</div>}
                                                         {sData.folders.map(folder => (
                                                             <div key={folder.id}>
-                                                                <button onClick={() => toggleState(setExpandedCourses, folder.code)} className="w-full flex items-center gap-2 p-2 hover:bg-white/5 rounded-lg text-xs text-gray-300 border border-transparent transition-all">
-                                                                    {expandedCourses.includes(folder.code) ? <ChevronDown size={12} className="text-cyan-500" /> : <ChevronRight size={12} className="text-gray-600" />}
-                                                                    <span className="font-bold text-cyan-200/80 tracking-wide">{folder.code}</span>
+                                                                <button onClick={() => toggleState(setExpandedCourses, folder.code)} className="w-full flex items-center gap-2 p-2 hover:bg-white/5 rounded-lg text-xs text-gray-300 border border-transparent transition-colors group">
+                                                                    {expandedCourses.includes(folder.code) ? <ChevronDown size={12} className="text-cyan-500" /> : <ChevronRight size={12} className="text-gray-600 group-hover:text-cyan-400" />}
+                                                                    <span className="font-bold text-cyan-200/80 tracking-wide group-hover:text-white transition-colors">{folder.code}</span>
                                                                 </button>
 
                                                                 {expandedCourses.includes(folder.code) && (
@@ -546,7 +608,7 @@ export default function Home() {
                                                                             const catKey = `${folder.code}-${cat}`;
                                                                             return (
                                                                                 <div key={cat}>
-                                                                                    <button onClick={() => toggleState(setExpandedCategories, catKey)} className={`w-full flex items-center gap-2 p-1.5 hover:bg-white/5 rounded text-[10px] uppercase font-mono tracking-wider ${expandedCategories.includes(catKey) ? 'text-cyan-400' : 'text-gray-500'}`}>
+                                                                                    <button onClick={() => toggleState(setExpandedCategories, catKey)} className={`w-full flex items-center gap-2 p-1.5 hover:bg-white/5 rounded text-[10px] uppercase font-mono tracking-wider transition-colors ${expandedCategories.includes(catKey) ? 'text-cyan-400' : 'text-gray-500 hover:text-gray-300'}`}>
                                                                                         {expandedCategories.includes(catKey) ? <ChevronDown size={10} /> : <ChevronRight size={10} />}
                                                                                         {cat}
                                                                                         <span className="ml-auto text-[9px] bg-white/5 text-gray-400 px-1 rounded border border-white/5">{catFiles.length}</span>
@@ -556,11 +618,11 @@ export default function Home() {
                                                                                             {catFiles.length === 0 && <div className="text-[9px] text-gray-700 italic px-2 font-mono">// EMPTY</div>}
                                                                                             {catFiles.map(file => (
                                                                                                 <div key={file.id} className="relative group">
-                                                                                                    <button onClick={() => { setSelectedFile(file); setIsMobileMenuOpen(false); }} className={`w-full text-left flex items-center gap-2 p-2 rounded text-[11px] border transition-all ${selectedFile?.id === file.id ? 'bg-white/10 text-white border-white/20 shadow-sm' : 'hover:bg-white/5 text-gray-400 border-transparent bg-transparent'}`}>
+                                                                                                    <button onClick={() => { setSelectedFile(file); setIsMobileMenuOpen(false); }} className={`w-full text-left flex items-center gap-2 p-2 rounded text-[11px] border transition-colors ${selectedFile?.id === file.id ? 'bg-white/10 text-white border-white/20 shadow-sm' : 'hover:bg-white/5 text-gray-400 border-transparent bg-transparent hover:text-gray-200'}`}>
                                                                                                         <FileText size={12} className={selectedFile?.id === file.id ? "text-cyan-300" : ""} /> <span className="truncate">{file.title}</span>
                                                                                                     </button>
                                                                                                     {currentUser && (
-                                                                                                        <button onClick={() => handleDeleteFile(file)} className="absolute right-1 top-1.5 p-1 text-red-400 opacity-0 group-hover:opacity-100 hover:bg-red-500/20 rounded transition">
+                                                                                                        <button onClick={() => handleDeleteFile(file)} className="absolute right-1 top-1.5 p-1 text-red-400 opacity-0 group-hover:opacity-100 hover:bg-red-500/20 rounded transition-colors">
                                                                                                             <Trash2 size={10} />
                                                                                                         </button>
                                                                                                     )}
@@ -624,12 +686,12 @@ export default function Home() {
                         </>
                     )}
                 </div>
-            </motion.div>
+            </aside>
 
-            <div className="flex-1 flex flex-col relative bg-[#050505] w-full max-w-full overflow-hidden">
+            <div className="flex-1 flex flex-col relative bg-transparent w-full max-w-full overflow-hidden">
                 {/* Mobile Header */}
                 {!selectedFile && (
-                    <div className="md:hidden h-14 border-b border-white/10 flex items-center px-4 justify-between bg-[#0a0a0c]/80 backdrop-blur-md shrink-0">
+                    <div className="md:hidden h-14 border-b border-white/10 flex items-center px-4 justify-between bg-white/[0.03] backdrop-blur-3xl shrink-0">
                         <span className="font-black text-transparent bg-clip-text bg-gradient-to-r from-cyan-200 to-white tracking-widest uppercase">STAT.Notes</span>
                         <button onClick={() => setIsMobileMenuOpen(true)} className="text-cyan-400"><Menu size={24} /></button>
                     </div>
@@ -638,19 +700,26 @@ export default function Home() {
                 {selectedFile ? (
                     <div className="flex-1 flex flex-col md:flex-row overflow-hidden p-0 md:p-4 gap-4 relative">
                         {/* PDF Viewer Area */}
-                        <motion.div layout className="flex-1 bg-[#0a0a0c]/80 backdrop-blur-xl md:rounded-xl border-x md:border border-white/10 overflow-hidden shadow-[0_8px_32px_rgba(0,0,0,0.5)] relative flex flex-col">
-                            <div className="h-14 bg-[#0d0d10]/50 border-b border-white/5 flex items-center justify-between px-4 gap-2 relative">
-                                <button onClick={handleGoHome} className="md:hidden mr-2 text-cyan-600 hover:text-cyan-400 transition">
+                        <motion.div 
+                            initial={{ opacity: 0, y: 20, scale: 0.98 }}
+                            animate={{ opacity: 1, y: 0, scale: 1 }}
+                            exit={{ opacity: 0, y: -20, scale: 0.98 }}
+                            transition={{ duration: 0.4, ease: "easeOut" }}
+                            layout 
+                            className="flex-1 bg-white/[0.04] backdrop-blur-3xl md:rounded-2xl border-x md:border border-white/10 overflow-hidden shadow-[0_15px_40px_rgba(0,0,0,0.4)] relative flex flex-col"
+                        >
+                            <div className="h-16 bg-black/20 border-b border-white/10 flex items-center justify-between px-5 gap-3 relative">
+                                <button onClick={handleGoHome} className="md:hidden mr-2 text-white hover:text-gray-300 transition">
                                     <HomeIcon size={20} />
                                 </button>
                                 <div className="flex flex-col overflow-hidden flex-1">
                                     <div className="flex items-center gap-2">
-                                        <span className="text-[9px] bg-white/5 text-cyan-300 px-2 py-0.5 rounded border border-white/10 whitespace-nowrap font-mono uppercase tracking-wider">{selectedFile.category}</span>
-                                        <span className="text-[9px] text-gray-500 flex items-center gap-1 font-mono"><User size={10} /> {selectedFile.uploader || "UNKNOWN_USER"}</span>
+                                        <span className="text-[10px] bg-white/10 text-cyan-200 px-2.5 py-1 rounded-md border border-white/10 whitespace-nowrap font-medium tracking-wide">{selectedFile.category}</span>
+                                        <span className="text-[10px] text-gray-400 flex items-center gap-1 font-medium"><User size={12} /> {selectedFile.uploader || "UNKNOWN_USER"}</span>
                                     </div>
                                     <span className="text-sm font-bold text-gray-100 truncate mt-1 tracking-wide">{selectedFile.title}</span>
                                 </div>
-                                <a href={selectedFile.pdf_url} target="_blank" className="hidden md:inline-flex text-xs text-cyan-400 hover:text-white font-bold whitespace-nowrap ml-2 border border-white/10 px-3 py-1.5 rounded-lg hover:bg-white/5 transition uppercase tracking-wider">External</a>
+                                <a href={selectedFile.pdf_url} target="_blank" className="hidden md:inline-flex text-[11px] text-white font-bold whitespace-nowrap ml-2 border border-white/20 bg-white/5 hover:bg-white/10 px-4 py-2 rounded-xl transition tracking-wide shadow-sm">EXTERNAL</a>
 
                                 {/* Mobile 3-Dot Menu */}
                                 <div className="relative md:hidden flex items-center">
@@ -721,21 +790,21 @@ export default function Home() {
                                 </div>
                             </div>
 
-                            <iframe src={selectedFile.pdf_url} className="flex-1 w-full bg-[#121212]" title="Preview" />
+                            <iframe src={selectedFile.pdf_url} className="flex-1 w-full bg-white/5" title="Preview" />
 
-                            <button onClick={() => setIsAiOpen(!isAiOpen)} className="absolute bottom-6 right-6 bg-[#050505]/95 backdrop-blur-xl p-3.5 rounded-full text-cyan-400 shadow-[0_4px_20px_rgba(0,0,0,0.8)] hover:shadow-[0_0_20px_rgba(6,182,212,0.4)] transition-all z-10 flex items-center justify-center border border-cyan-500/50 hover:border-cyan-400 hover:bg-black group">
-                                {isAiOpen ? <ChevronRight size={22} className="group-hover:text-cyan-300 transition-colors" /> : <MessageSquare size={22} className="group-hover:text-cyan-300 transition-colors" />}
+                            <button onClick={() => setIsAiOpen(!isAiOpen)} className="absolute bottom-6 right-6 bg-white/10 backdrop-blur-xl p-4 rounded-full text-white shadow-[0_8px_30px_rgba(0,0,0,0.3)] hover:shadow-[0_10px_40px_rgba(0,0,0,0.4)] hover:-translate-y-1 transition-all duration-300 z-10 flex items-center justify-center border border-white/20 hover:border-white/30 hover:bg-white/20 group">
+                                {isAiOpen ? <ChevronRight size={22} className="text-white drop-shadow-md" /> : <MessageSquare size={22} className="text-white drop-shadow-md" />}
                             </button>
                         </motion.div>
 
                         {/* AI Tutor Panel */}
                         <AnimatePresence mode='popLayout'>
                             {isAiOpen && (
-                                <motion.div initial={{ width: 0, opacity: 0, x: 50 }} animate={{ width: 350, opacity: 1, x: 0 }} exit={{ width: 0, opacity: 0, x: 50 }} className="fixed md:relative inset-y-0 right-0 z-30 w-full md:w-[350px] bg-[#0a0a0c]/70 backdrop-blur-2xl border-l md:border border-white/10 flex flex-col md:rounded-xl overflow-hidden shadow-[-8px_0_32px_rgba(0,0,0,0.5)]">
-                                    <div className="p-4 border-b border-white/10 bg-[#0d0d10]/50 flex justify-between items-center relative">
-                                        <div className="absolute top-0 left-0 w-full h-[1px] bg-gradient-to-r from-transparent via-cyan-400/20 to-transparent"></div>
-                                        <div className="flex items-center gap-2"><Sparkles size={16} className="text-fuchsia-400/80" /><span className="text-sm font-black text-white uppercase tracking-widest">Tutor AI</span></div>
-                                        <button onClick={() => setIsAiOpen(false)} className="text-gray-500 hover:text-white transition"><Minimize2 size={16} /></button>
+                                <motion.div initial={{ width: 0, opacity: 0, x: 50 }} animate={{ width: 350, opacity: 1, x: 0 }} exit={{ width: 0, opacity: 0, x: 50 }} transition={{ duration: 0.4, ease: "easeOut" }} className="fixed md:relative inset-y-0 right-0 z-30 w-full md:w-[350px] bg-black/40 backdrop-blur-3xl border border-white/10 flex flex-col md:rounded-2xl overflow-hidden shadow-[-10px_0_40px_rgba(0,0,0,0.5)]">
+                                    <div className="p-5 border-b border-white/10 bg-white/5 flex justify-between items-center relative backdrop-blur-xl">
+                                        <div className="absolute top-0 left-0 w-full h-[1px] bg-gradient-to-r from-transparent via-fuchsia-400/30 to-transparent"></div>
+                                        <div className="flex items-center gap-2"><Sparkles size={16} className="text-fuchsia-400 drop-shadow-[0_0_8px_rgba(232,121,249,0.5)]" /><span className="text-[15px] font-bold text-white tracking-wide">Tutor AI</span></div>
+                                        <button onClick={() => setIsAiOpen(false)} className="text-gray-400 hover:text-white transition bg-white/5 hover:bg-white/10 p-1.5 rounded-lg border border-transparent hover:border-white/10"><Minimize2 size={16} /></button>
                                     </div>
 
                                     <div className="flex-1 overflow-y-auto p-4 custom-scrollbar bg-transparent flex flex-col" ref={chatScrollRef}>
@@ -773,19 +842,19 @@ export default function Home() {
                                         )}
 
                                         {chatHistory.map((msg, i) => (
-                                            <div key={i} className={`mb-5 p-3.5 rounded-2xl text-sm leading-relaxed max-w-[90%] relative ${msg.role === 'user' ? 'bg-white/15 backdrop-blur-md border border-white/10 text-white ml-auto rounded-br-none shadow-sm' : 'bg-black/40 backdrop-blur-md border border-white/5 text-gray-200 mr-auto rounded-bl-none shadow-sm'}`}>
+                                            <div key={i} className={`mb-5 p-4 rounded-2xl text-sm leading-relaxed max-w-[90%] relative ${msg.role === 'user' ? 'bg-gradient-to-br from-white/15 to-white/5 backdrop-blur-md border border-white/20 text-white ml-auto rounded-br-none shadow-[0_4px_15px_rgba(0,0,0,0.2)]' : 'bg-black/60 backdrop-blur-md border border-white/10 text-gray-200 mr-auto rounded-bl-none shadow-[0_4px_15px_rgba(0,0,0,0.2)]'}`}>
                                                 <div className="prose prose-invert max-w-none text-[13px] break-words">
-                                                    <ReactMarkdown remarkPlugins={[remarkMath]} rehypePlugins={[rehypeKatex]} components={{ p: ({ node, ...props }) => <p className="mb-2 last:mb-0" {...props} />, a: ({ node, ...props }) => <a className="text-cyan-300 hover:text-cyan-200 hover:underline" {...props} />, code: ({ node, ...props }) => <code className="bg-black/50 text-cyan-200/80 px-1 py-0.5 rounded font-mono text-[11px]" {...props} /> }}>{msg.text}</ReactMarkdown>
+                                                    <ReactMarkdown remarkPlugins={[remarkMath]} rehypePlugins={[rehypeKatex]} components={{ p: ({ node, ...props }) => <p className="mb-2 last:mb-0" {...props} />, a: ({ node, ...props }) => <a className="text-cyan-300 hover:text-cyan-200 hover:underline" {...props} />, code: ({ node, ...props }) => <code className="bg-black/50 text-cyan-200/80 px-1.5 py-0.5 rounded font-mono text-[11px] border border-white/10" {...props} /> }}>{msg.text}</ReactMarkdown>
                                                 </div>
                                             </div>
                                         ))}
-                                        {isAiLoading && <div className="flex items-center gap-2 text-[10px] font-mono text-gray-400 pl-2 mb-4 uppercase tracking-wider"><Loader2 size={12} className="animate-spin text-fuchsia-400/80" /> Processing...</div>}
+                                        {isAiLoading && <div className="flex items-center gap-2 text-[10px] font-mono text-fuchsia-400/80 pl-2 mb-4 uppercase tracking-wider"><Loader2 size={12} className="animate-spin" /> Processing...</div>}
                                     </div>
 
-                                    <div className="p-3 border-t border-white/10 bg-[#0d0d10]/50">
-                                        <div className="flex items-center gap-2 bg-black/40 border border-white/10 focus-within:border-white/20 rounded-xl px-2 py-1.5 transition-all">
-                                            <input value={chatInput} onChange={(e) => setChatInput(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleChat()} placeholder="Execute Query..." className="flex-1 bg-transparent border-none text-sm text-gray-100 p-2 outline-none placeholder-gray-600 font-mono" />
-                                            <button onClick={() => handleChat()} className="bg-white/10 hover:bg-white/20 p-2.5 rounded-lg text-white transition border border-white/5"><Send size={14} /></button>
+                                    <div className="p-4 border-t border-white/10 bg-black/40 backdrop-blur-xl relative z-10">
+                                        <div className="flex items-center gap-2 bg-black/60 border border-white/10 focus-within:border-white/30 focus-within:bg-black/80 rounded-xl px-2 py-1.5 transition-all shadow-inner">
+                                            <input value={chatInput} onChange={(e) => setChatInput(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleChat()} placeholder="Execute Query..." className="flex-1 bg-transparent border-none text-sm text-gray-100 p-2 outline-none placeholder-gray-500 font-mono" />
+                                            <button onClick={() => handleChat()} className="bg-white/10 hover:bg-white/20 p-2.5 rounded-lg text-white transition-all duration-300 border border-white/10 hover:border-white/20 hover:scale-105"><Send size={14} /></button>
                                         </div>
                                     </div>
                                 </motion.div>
@@ -793,39 +862,46 @@ export default function Home() {
                         </AnimatePresence>
                     </div>
                 ) : (
-                    <div className="flex-1 flex flex-col bg-[#050505] overflow-hidden min-h-0 relative">
-                        {/* Decorative background grid (subtle) */}
+                    <div className="flex-1 flex flex-col bg-transparent overflow-hidden min-h-0 relative">
                         <div className="absolute inset-0 bg-[url('https://transparenttextures.com/patterns/cubes.png')] opacity-[0.015] pointer-events-none"></div>
 
                         <div className="flex-1 p-4 md:p-8 overflow-y-auto custom-scrollbar flex flex-col z-10">
                             {currentUser && dashboardFiles.length > 0 ? (
-                                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5 mb-8">
-                                    {dashboardFiles.map((file) => (
-                                        <div key={file.id} className="group bg-[#0a0a0c]/40 backdrop-blur-md border border-white/10 hover:border-white/20 p-4 rounded-xl transition-all duration-300 hover:shadow-[0_8px_24px_rgba(0,0,0,0.4)] flex flex-col gap-3 relative cursor-pointer overflow-hidden" onClick={() => setSelectedFile(file)}>
+                                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6 mb-8">
+                                    {dashboardFiles.map((file, idx) => (
+                                        <motion.div 
+                                            initial={{ opacity: 0, y: 30 }}
+                                            whileInView={{ opacity: 1, y: 0 }}
+                                            viewport={{ once: true, margin: "100px" }}
+                                            transition={{ duration: 0.4, ease: "easeOut" }}
+                                            key={file.id} 
+                                            className="group bg-white/[0.04] backdrop-blur-md border border-white/10 hover:border-white/30 p-5 rounded-2xl transition-all duration-300 hover:-translate-y-1 hover:shadow-[0_10px_30px_rgba(0,0,0,0.3)] hover:bg-white/[0.08] flex flex-col gap-4 relative cursor-pointer overflow-hidden" 
+                                            onClick={() => setSelectedFile(file)}
+                                        >
                                             {/* Very subtle corners */}
-                                            <div className="absolute top-0 left-0 w-2 h-2 border-t border-l border-white/20 opacity-0 group-hover:opacity-100 transition-opacity rounded-tl-sm z-20"></div>
-                                            <div className="absolute bottom-0 right-0 w-2 h-2 border-b border-r border-white/20 opacity-0 group-hover:opacity-100 transition-opacity rounded-br-sm z-20"></div>
+                                            <div className="absolute top-0 left-0 w-3 h-3 border-t border-l border-white/20 opacity-0 group-hover:opacity-100 transition-opacity rounded-tl-sm z-20"></div>
+                                            <div className="absolute bottom-0 right-0 w-3 h-3 border-b border-r border-white/20 opacity-0 group-hover:opacity-100 transition-opacity rounded-br-sm z-20"></div>
 
-                                            <div className="h-40 bg-black/40 rounded-lg mb-1 overflow-hidden relative border border-white/5 transition-colors">
+                                            <div className="h-44 bg-black/20 rounded-xl mb-1 overflow-hidden relative border border-white/10 transition-colors">
                                                 <FileThumbnail url={file.pdf_url} fileTitle={file.title} />
-                                                <div className="absolute inset-0 bg-gradient-to-t from-[#0a0a0c]/80 via-transparent to-transparent" />
-                                                <div className="absolute top-2 right-2 bg-black/60 backdrop-blur-md p-1.5 rounded-md border border-white/10 shadow-sm transition-colors"><FileText size={14} className="text-gray-300" /></div>
+                                                <div className="absolute inset-0 bg-gradient-to-t from-[#060913]/90 via-transparent to-transparent" />
+                                                <div className="absolute top-3 right-3 bg-white/10 backdrop-blur-md p-2 rounded-lg border border-white/20 shadow-lg transition-colors"><FileText size={16} className="text-white drop-shadow-md" /></div>
                                             </div>
 
                                             <div className="flex items-start justify-between z-10">
                                                 <div className="flex-1 min-w-0">
-                                                    <h3 className="font-bold text-gray-200 text-sm truncate tracking-wide group-hover:text-white transition-colors">{file.title}</h3>
-                                                    <p className="text-[10px] text-gray-500 mt-1 flex items-center gap-1 font-mono uppercase"><User size={10} /> {file.uploader || "UNKNOWN"}</p>
+                                                    <h3 className="font-bold text-gray-100 text-[15px] truncate tracking-wide group-hover:text-white transition-colors">{file.title}</h3>
+                                                    <p className="text-[11px] text-gray-400 mt-1 flex items-center gap-1 font-medium"><User size={12} /> {file.uploader || "UNKNOWN"}</p>
                                                 </div>
                                                 {currentUser && (
-                                                    <button onClick={(e) => { e.stopPropagation(); handleDeleteFile(file); }} className="text-gray-500 hover:text-red-400 transition p-1.5 opacity-0 group-hover:opacity-100 hover:bg-red-500/10 rounded"><Trash2 size={14} /></button>
+                                                    <button onClick={(e) => { e.stopPropagation(); handleDeleteFile(file); }} className="text-gray-500 hover:text-red-400 transition p-2 opacity-0 group-hover:opacity-100 hover:bg-red-500/20 backdrop-blur-md rounded-lg"><Trash2 size={16} /></button>
                                                 )}
                                             </div>
                                             <div className="flex items-center gap-2 mt-auto z-10">
-                                                <span className="text-[9px] bg-white/5 text-gray-300 px-2 py-1 rounded border border-white/10 truncate max-w-[50%] font-mono uppercase">{file.course_code}</span>
-                                                <span className="text-[9px] bg-white/5 text-gray-300 px-2 py-1 rounded border border-white/10 truncate max-w-[50%] font-mono uppercase">{file.category}</span>
+                                                <span className="text-[10px] bg-white/10 text-gray-200 px-2.5 py-1 rounded-md border border-white/10 truncate max-w-[50%] font-medium">{file.course_code}</span>
+                                                <span className="text-[10px] bg-white/10 text-gray-200 px-2.5 py-1 rounded-md border border-white/10 truncate max-w-[50%] font-medium">{file.category}</span>
                                             </div>
-                                        </div>
+                                        </motion.div>
                                     ))}
                                 </div>
                             ) : (
@@ -836,46 +912,53 @@ export default function Home() {
                                             <p className="font-mono tracking-widest uppercase text-sm text-gray-600">NO_DATA_FOUND</p>
                                         </>
                                     ) : (
-                                        <>
-                                            <Lock size={56} className="text-white/10 drop-shadow-sm" />
-                                            <p className="font-mono tracking-widest uppercase text-sm text-gray-600">SYSTEM LOCKED</p>
-                                            <button onClick={() => setShowAdminModal(true)} className="mt-4 px-6 py-2 bg-cyan-500/20 text-cyan-400 rounded-lg hover:bg-cyan-500/30 transition border border-cyan-500/30 font-mono text-xs uppercase tracking-widest">Login to Access</button>
-                                        </>
+                                        <div className="flex-1 flex flex-col items-center justify-center p-8 max-w-2xl text-center z-20">
+                                            <div className="w-24 h-24 mb-6 relative flex items-center justify-center">
+                                                <div className="absolute inset-0 bg-white/5 rounded-full animate-ping opacity-20 duration-1000"></div>
+                                                <div className="absolute inset-0 bg-white/10 rounded-full backdrop-blur-xl border border-white/20 flex items-center justify-center shadow-[0_0_30px_rgba(255,255,255,0.1)]">
+                                                    <Lock size={32} className="text-white drop-shadow-md" />
+                                                </div>
+                                            </div>
+                                            
+                                            <h2 className="text-3xl font-black text-transparent bg-clip-text bg-gradient-to-r from-white to-gray-400 mb-6 tracking-tight drop-shadow-sm">Access Knowledge Base</h2>
+                                            
+                                            <div className="h-16 mb-8 relative w-full flex items-center justify-center overflow-visible">
+                                                <AnimatePresence mode="wait">
+                                                    <motion.p
+                                                        key={quoteIndex}
+                                                        initial={{ opacity: 0, y: 10, filter: "blur(4px)" }}
+                                                        animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
+                                                        exit={{ opacity: 0, y: -10, filter: "blur(4px)" }}
+                                                        transition={{ duration: 0.6, ease: "easeOut" }}
+                                                        className="text-sm md:text-base font-medium text-gray-300 italic leading-relaxed max-w-lg absolute text-center"
+                                                    >
+                                                        "{STAT_QUOTES[quoteIndex]}"
+                                                    </motion.p>
+                                                </AnimatePresence>
+                                            </div>
+
+                                            <button 
+                                                onClick={() => setShowAdminModal(true)} 
+                                                className="group relative px-8 py-3.5 bg-white/10 hover:bg-white/20 backdrop-blur-md rounded-xl transition-all duration-300 border border-white/20 shadow-[0_8px_20px_rgba(0,0,0,0.2)] hover:shadow-[0_10px_30px_rgba(255,255,255,0.1)] hover:-translate-y-1 overflow-hidden"
+                                            >
+                                                <span className="relative text-sm font-bold tracking-widest text-white uppercase drop-shadow-sm flex items-center gap-2">
+                                                    Login to Access <ChevronRight size={16} className="group-hover:translate-x-1 transition-transform" />
+                                                </span>
+                                            </button>
+                                        </div>
                                     )}
                                 </div>
                             )}
 
-                            {/* ✨ COMPACT GLASS FOOTER ✨ */}
+                            {/* ✨ MINIMAL FOOTER ✨ */}
                             <div className="mt-auto pt-6 pb-4 w-full flex justify-center items-center">
-                                <div className="relative group cursor-default">
-                                    {/* Subtle ambient light */}
-                                    <div className="absolute -inset-0.5 bg-gradient-to-r from-cyan-500/20 via-purple-500/20 to-fuchsia-500/20 rounded-xl blur-sm opacity-50 group-hover:opacity-100 transition duration-500"></div>
-
-                                    <div className="relative flex flex-col items-center justify-center px-6 py-2.5 bg-[#0a0a0c]/60 backdrop-blur-xl border border-white/10 hover:border-white/20 rounded-xl shadow-[0_4px_15px_rgba(0,0,0,0.3)] overflow-hidden transition-colors">
-                                        {/* Scanline */}
-                                        <div className="absolute top-0 left-0 w-full h-[1px] bg-gradient-to-r from-transparent via-cyan-400/30 to-transparent"></div>
-
-                                        <span className="text-[7px] font-mono tracking-[0.3em] text-gray-500 uppercase mb-0.5">
-                                            Developed By
-                                        </span>
-
-                                        <div className="flex flex-col items-center justify-center">
-                                            <div className="flex items-center gap-2">
-                                                <Sparkles size={10} className="text-fuchsia-400/70" />
-                                                <span className="text-sm font-black tracking-[0.15em] text-transparent bg-clip-text bg-gradient-to-r from-cyan-200 to-fuchsia-200 uppercase leading-none mt-0.5">
-                                                    MUNIF
-                                                </span>
-                                                <Sparkles size={10} className="text-cyan-400/70" />
-                                            </div>
-                                            <span className="text-[7px] font-mono tracking-[0.2em] text-cyan-400/60 uppercase mt-1">
-                                                Vibe Coding
-                                            </span>
-                                        </div>
-
-                                        {/* Subtle corners */}
-                                        <div className="absolute bottom-0 right-0 w-2 h-2 border-b border-r border-white/20 rounded-br-sm"></div>
-                                        <div className="absolute top-0 left-0 w-2 h-2 border-t border-l border-white/20 rounded-tl-sm"></div>
-                                    </div>
+                                <div className="flex items-center gap-2 px-4 py-1.5 bg-white/5 backdrop-blur-xl border border-white/10 rounded-full shadow-[0_4px_15px_rgba(0,0,0,0.1)] hover:bg-white/10 transition-colors">
+                                    <span className="text-[10px] font-medium tracking-widest text-gray-400 uppercase">
+                                        Developed By
+                                    </span>
+                                    <span className="text-[10px] font-black tracking-widest text-white uppercase">
+                                        MUNIF
+                                    </span>
                                 </div>
                             </div>
 
@@ -885,16 +968,25 @@ export default function Home() {
             </div>
 
             <AnimatePresence>
-                {/* ✨ GLASS AUTH MODAL ✨ */}
+                {/* ✨ FROSTED AUTH MODAL ✨ */}
                 {showAdminModal && (
-                    <div className="fixed inset-0 bg-black/60 backdrop-blur-md z-[60] flex items-center justify-center p-4">
-                        <div className="relative group w-full max-w-sm">
-                            <div className="relative bg-[#09090b]/60 backdrop-blur-2xl border border-white/10 p-8 rounded-xl shadow-[0_8px_32px_rgba(0,0,0,0.5)] text-center overflow-hidden">
-                                <div className="absolute top-0 left-0 w-full h-[1px] bg-gradient-to-r from-transparent via-cyan-400/30 to-transparent"></div>
-                                <div className="absolute bottom-0 right-0 w-3 h-3 border-b-2 border-r-2 border-white/20 rounded-br-sm"></div>
-                                <div className="absolute top-0 left-0 w-3 h-3 border-t-2 border-l-2 border-white/20 rounded-tl-sm"></div>
+                    <motion.div 
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1 }}
+                        exit={{ opacity: 0 }}
+                        className="fixed inset-0 bg-black/40 backdrop-blur-md z-[60] flex items-center justify-center p-4"
+                    >
+                        <motion.div 
+                            initial={{ scale: 0.95, y: 20, opacity: 0 }}
+                            animate={{ scale: 1, y: 0, opacity: 1 }}
+                            exit={{ scale: 0.95, y: 20, opacity: 0 }}
+                            transition={{ type: "spring", damping: 25, stiffness: 300 }}
+                            className="relative w-full max-w-sm"
+                        >
+                            <div className="relative bg-white/[0.05] backdrop-blur-3xl border border-white/20 p-8 rounded-3xl shadow-[0_20px_50px_rgba(0,0,0,0.5)] text-center overflow-hidden">
+                                <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[80%] h-[1px] bg-gradient-to-r from-transparent via-white/30 to-transparent"></div>
 
-                                <h3 className="text-xl font-black mb-6 tracking-widest text-white uppercase">
+                                <h3 className="text-xl font-black mb-6 tracking-widest text-white uppercase drop-shadow-md">
                                     {authMode === 'login' ? 'System Login' : authMode === 'register' ? 'Register Account' : authMode === 'forgot_password' ? 'Reset Request' : 'New Password'}
                                 </h3>
 
@@ -902,41 +994,41 @@ export default function Home() {
                                     <div className="space-y-4 mb-6">
                                         {(authMode === 'login' || authMode === 'register' || authMode === 'forgot_password' || authMode === 'reset_password') && (
                                             <div className="relative">
-                                                <Lock size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500" />
-                                                <input type="text" placeholder="STUDENT ID" className="w-full bg-black/40 border border-white/10 pl-9 pr-3 py-3 rounded-lg text-white font-mono text-sm outline-none focus:border-white/20 focus:bg-black/60 transition-all uppercase" value={authForm.id} onChange={(e) => setAuthForm({ ...authForm, id: e.target.value.toUpperCase() })} disabled={isAuthLoading || authMode === 'reset_password'} />
+                                                <Lock size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-white/50" />
+                                                <input type="text" placeholder="STUDENT ID" className="w-full bg-black/20 border border-white/10 pl-9 pr-3 py-3 rounded-xl text-white font-medium text-sm outline-none focus:border-white/30 focus:bg-black/30 transition-all uppercase placeholder-white/30" value={authForm.id} onChange={(e) => setAuthForm({ ...authForm, id: e.target.value.toUpperCase() })} disabled={isAuthLoading || authMode === 'reset_password'} />
                                             </div>
                                         )}
 
                                         {authMode === 'register' && (
                                             <div className="relative">
-                                                <input type="email" placeholder="EMAIL ADDRESS" className="w-full bg-black/40 border border-white/10 px-3 py-3 rounded-lg text-white font-mono text-sm outline-none focus:border-white/20 focus:bg-black/60 transition-all" value={authForm.email} onChange={(e) => setAuthForm({ ...authForm, email: e.target.value })} disabled={isAuthLoading} />
+                                                <input type="email" placeholder="EMAIL ADDRESS" className="w-full bg-black/20 border border-white/10 px-3 py-3 rounded-xl text-white font-medium text-sm outline-none focus:border-white/30 focus:bg-black/30 transition-all placeholder-white/30" value={authForm.email} onChange={(e) => setAuthForm({ ...authForm, email: e.target.value })} disabled={isAuthLoading} />
                                             </div>
                                         )}
 
                                         {(authMode === 'login' || authMode === 'register') && (
                                             <div className="relative">
-                                                <input type="password" placeholder="PASSWORD" className="w-full bg-black/40 border border-white/10 px-3 py-3 rounded-lg text-white font-mono text-sm outline-none focus:border-white/20 focus:bg-black/60 transition-all" value={authForm.password} onChange={(e) => setAuthForm({ ...authForm, password: e.target.value })} disabled={isAuthLoading} />
+                                                <input type="password" placeholder="PASSWORD" className="w-full bg-black/20 border border-white/10 px-3 py-3 rounded-xl text-white font-medium text-sm outline-none focus:border-white/30 focus:bg-black/30 transition-all placeholder-white/30" value={authForm.password} onChange={(e) => setAuthForm({ ...authForm, password: e.target.value })} disabled={isAuthLoading} />
                                             </div>
                                         )}
 
                                         {authMode === 'reset_password' && (
                                             <>
-                                                <p className="text-[11px] text-fuchsia-400/90 font-mono bg-fuchsia-500/10 border border-fuchsia-500/20 p-2 rounded-lg text-center leading-relaxed">
-                                                    OTP Sent! ⚠️ Check your <strong className="text-fuchsia-300">SPAM / JUNK</strong> folder if you don't see it.
+                                                <p className="text-[11px] text-white/90 font-medium bg-white/10 border border-white/20 p-2 rounded-xl text-center leading-relaxed">
+                                                    OTP Sent! ⚠️ Check your <strong className="text-white font-bold">SPAM / JUNK</strong> folder if you don't see it.
                                                 </p>
                                                 <div className="relative">
-                                                    <input type="text" placeholder="6-DIGIT OTP" className="w-full bg-black/40 border border-white/10 px-3 py-3 rounded-lg text-white font-mono text-sm outline-none focus:border-white/20 focus:bg-black/60 transition-all uppercase tracking-widest text-center" value={authForm.otp} onChange={(e) => setAuthForm({ ...authForm, otp: e.target.value })} disabled={isAuthLoading} />
+                                                    <input type="text" placeholder="6-DIGIT OTP" className="w-full bg-black/20 border border-white/10 px-3 py-3 rounded-xl text-white font-medium text-sm outline-none focus:border-white/30 focus:bg-black/30 transition-all uppercase tracking-widest text-center placeholder-white/30" value={authForm.otp} onChange={(e) => setAuthForm({ ...authForm, otp: e.target.value })} disabled={isAuthLoading} />
                                                 </div>
                                                 <div className="relative">
-                                                    <input type="password" placeholder="NEW PASSWORD" className="w-full bg-black/40 border border-white/10 px-3 py-3 rounded-lg text-white font-mono text-sm outline-none focus:border-white/20 focus:bg-black/60 transition-all" value={authForm.newPassword} onChange={(e) => setAuthForm({ ...authForm, newPassword: e.target.value })} disabled={isAuthLoading} />
+                                                    <input type="password" placeholder="NEW PASSWORD" className="w-full bg-black/20 border border-white/10 px-3 py-3 rounded-xl text-white font-medium text-sm outline-none focus:border-white/30 focus:bg-black/30 transition-all placeholder-white/30" value={authForm.newPassword} onChange={(e) => setAuthForm({ ...authForm, newPassword: e.target.value })} disabled={isAuthLoading} />
                                                 </div>
                                             </>
                                         )}
                                     </div>
 
                                     <div className="flex gap-3 mb-4">
-                                        <button type="button" onClick={() => { setShowAdminModal(false); setAuthMode('login'); }} disabled={isAuthLoading} className="flex-1 py-2.5 rounded-lg border border-white/10 hover:bg-white/5 text-gray-400 hover:text-white transition text-xs font-bold tracking-wider uppercase">Abort</button>
-                                        <button type="submit" disabled={isAuthLoading} className="flex-1 flex justify-center items-center py-2.5 rounded-lg bg-white/10 hover:bg-white/20 text-white transition text-xs font-bold tracking-wider border border-white/10 shadow-sm uppercase">
+                                        <button type="button" onClick={() => { setShowAdminModal(false); setAuthMode('login'); }} disabled={isAuthLoading} className="flex-1 py-3 rounded-xl bg-white/5 hover:bg-white/10 text-white transition-colors text-xs font-bold tracking-wider uppercase border border-white/10">Abort</button>
+                                        <button type="submit" disabled={isAuthLoading} className="flex-1 flex justify-center items-center py-3 rounded-xl bg-white/20 hover:bg-white/30 text-white transition text-xs font-bold tracking-wider border border-white/20 shadow-sm uppercase">
                                             {isAuthLoading ? <Loader2 size={16} className="animate-spin" /> : "Execute"}
                                         </button>
                                     </div>
@@ -945,16 +1037,16 @@ export default function Home() {
                                 <div className="flex flex-col gap-3 mt-4 pt-4 border-t border-white/10">
                                     {authMode === 'login' ? (
                                         <>
-                                            <button onClick={() => setAuthMode('register')} className="w-full py-2.5 rounded-lg border border-cyan-500/50 bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-300 text-xs font-bold uppercase tracking-widest shadow-[0_0_10px_rgba(6,182,212,0.2)] hover:shadow-[0_0_15px_rgba(6,182,212,0.4)] transition-all">Create New Account</button>
-                                            <button onClick={() => setAuthMode('forgot_password')} className="text-[10px] text-gray-500 hover:text-gray-300 uppercase tracking-widest font-mono mt-1">Forgot Password?</button>
+                                            <button onClick={() => setAuthMode('register')} className="w-full py-3 rounded-xl border border-white/20 bg-white/5 hover:bg-white/10 text-white text-xs font-bold uppercase tracking-widest shadow-sm transition-all">Create New Account</button>
+                                            <button onClick={() => setAuthMode('forgot_password')} className="text-[10px] text-gray-400 hover:text-white uppercase tracking-widest font-medium mt-1 transition-colors">Forgot Password?</button>
                                         </>
                                     ) : (
-                                        <button onClick={() => setAuthMode('login')} className="text-[10px] text-gray-500 hover:text-gray-300 uppercase tracking-widest font-mono">Back to Login</button>
+                                        <button onClick={() => setAuthMode('login')} className="text-[10px] text-gray-400 hover:text-white uppercase tracking-widest font-medium transition-colors">Back to Login</button>
                                     )}
                                 </div>
                             </div>
-                        </div>
-                    </div>
+                        </motion.div>
+                    </motion.div>
                 )}
 
                 {/* ✨ GLASS ADD FOLDER MODAL ✨ */}
@@ -1139,6 +1231,6 @@ export default function Home() {
                 </div>
             )}
 
-        </div>
+        </motion.div>
     );
 }
