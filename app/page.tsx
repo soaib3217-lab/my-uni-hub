@@ -7,7 +7,8 @@ import {
     Trash2, Plus, Upload, Lock, Unlock, FileText, Send, X,
     ChevronRight, ChevronDown, Folder, Sparkles, MessageSquare,
     Minimize2, Loader2, GraduationCap, Menu, Search, FolderPlus,
-    File, User, Lightbulb, Grid, Home as HomeIcon, MoreVertical, ExternalLink
+    File, User, Lightbulb, Grid, Home as HomeIcon, MoreVertical, ExternalLink,
+    Download, ArrowLeft
 } from 'lucide-react';
 
 import ReactMarkdown from 'react-markdown';
@@ -33,8 +34,59 @@ function getDriveThumbnail(url: string) {
 }
 
 function getFileIdFromUrl(url: string) {
+    if (!url) return null;
     const match = url.match(/\/d\/([a-zA-Z0-9_-]+)/);
-    return match ? match[1] : null;
+    if (match && match[1]) return match[1];
+    const idMatch = url.match(/[?&]id=([a-zA-Z0-9_-]+)/);
+    return idMatch ? idMatch[1] : null;
+}
+
+function getDirectDownloadUrl(url: string) {
+    if (!url) return '';
+    const fileId = getFileIdFromUrl(url);
+    if (fileId) {
+        return `https://drive.google.com/uc?export=download&id=${fileId}`;
+    }
+    return url;
+}
+
+// 🔍 Search Term Text Highlighter
+function HighlightText({ text, highlight }: { text: string; highlight: string }) {
+    if (!highlight || !highlight.trim()) return <>{text}</>;
+    const query = highlight.trim().toLowerCase();
+    const lowerText = text.toLowerCase();
+    const parts: { text: string; match: boolean }[] = [];
+    let start = 0;
+
+    while (start < text.length) {
+        const index = lowerText.indexOf(query, start);
+        if (index === -1) {
+            parts.push({ text: text.slice(start), match: false });
+            break;
+        }
+        if (index > start) {
+            parts.push({ text: text.slice(start, index), match: false });
+        }
+        parts.push({ text: text.slice(index, index + query.length), match: true });
+        start = index + query.length;
+    }
+
+    return (
+        <>
+            {parts.map((part, i) =>
+                part.match ? (
+                    <mark
+                        key={i}
+                        className="bg-cyan-400/25 text-cyan-200 px-1 py-0.5 rounded font-bold border border-cyan-400/40 shadow-[0_0_8px_rgba(6,182,212,0.3)] not-italic"
+                    >
+                        {part.text}
+                    </mark>
+                ) : (
+                    <span key={i}>{part.text}</span>
+                )
+            )}
+        </>
+    );
 }
 
 // 🖼️ Thumbnail Component
@@ -186,27 +238,39 @@ export default function Home() {
         if (chatScrollRef.current) chatScrollRef.current.scrollTop = chatScrollRef.current.scrollHeight;
     }, [chatHistory, isAiLoading, suggestedQuestions]);
 
+    // Handle Browser History & Mobile Back Button so pressing back closes the file instead of exiting the site
+    useEffect(() => {
+        if (window.location.hash === '#view') {
+            window.history.replaceState(null, '', window.location.pathname + window.location.search);
+        }
+
+        const handlePopState = (event: PopStateEvent) => {
+            if (!event.state?.fileViewer && window.location.hash !== '#view') {
+                setSelectedFile(null);
+                setIsAiOpen(false);
+                setIsHeaderMenuOpen(false);
+            } else if (event.state?.fileViewer && event.state?.fileId) {
+                const targetFile = files.find(f => f.id === event.state.fileId);
+                if (targetFile) {
+                    setSelectedFile(targetFile);
+                }
+            }
+        };
+
+        window.addEventListener('popstate', handlePopState);
+        return () => window.removeEventListener('popstate', handlePopState);
+    }, [files]);
+
     useEffect(() => {
         if (selectedFile) {
             setChatHistory([]);
             setSuggestedQuestions([]);
             setIsHeaderMenuOpen(false);
+        } else {
+            setIsAiOpen(false);
+            setIsHeaderMenuOpen(false);
         }
     }, [selectedFile]);
-
-    useEffect(() => {
-        if (searchTerm.length > 0) {
-            const matches = files.filter(f => f.title.toLowerCase().includes(searchTerm));
-            const years = new Set(matches.map(f => f.year));
-            const semesters = new Set(matches.map(f => `${f.year}-${f.semester}`));
-            const courses = new Set(matches.map(f => f.course_code));
-            const cats = new Set(matches.map(f => `${f.course_code}-${f.category}`));
-            setExpandedYears(prev => [...Array.from(years), ...prev]);
-            setExpandedSemesters(prev => [...Array.from(semesters), ...prev]);
-            setExpandedCourses(prev => [...Array.from(courses), ...prev]);
-            setExpandedCategories(prev => [...Array.from(cats), ...prev]);
-        }
-    }, [searchTerm, files]);
 
     // --- 🔒 SECURE AI CALLS ---
     async function generateSuggestions(title: string) {
@@ -481,16 +545,31 @@ export default function Home() {
         }
         await supabase.from('courses').delete().eq('id', file.id);
         fetchData();
-        if (selectedFile?.id === file.id) setSelectedFile(null);
+        if (selectedFile?.id === file.id) handleGoHome();
     }
 
     const toggleState = (setter: any, val: string) => {
         setter((prev: string[]) => prev.includes(val) ? prev.filter(x => x !== val) : [...prev, val]);
     };
 
+    const handleSelectFile = (file: any) => {
+        if (!selectedFile) {
+            window.history.pushState({ fileViewer: true, fileId: file.id }, '', '#view');
+        } else {
+            window.history.replaceState({ fileViewer: true, fileId: file.id }, '', '#view');
+        }
+        setSelectedFile(file);
+        setIsMobileMenuOpen(false);
+    };
+
     const handleGoHome = () => {
         setSelectedFile(null);
+        setIsAiOpen(false);
+        setIsHeaderMenuOpen(false);
         setSearchTerm("");
+        if (window.history.state?.fileViewer || window.location.hash === '#view') {
+            window.history.back();
+        }
     };
 
     const structure = ["Year 1", "Year 2", "Year 3", "Year 4"].map(year => ({
@@ -541,7 +620,16 @@ export default function Home() {
                         <div className="relative group flex-1">
                             <div className="absolute inset-0 bg-gradient-to-r from-cyan-500/10 to-fuchsia-500/10 rounded-full blur-md opacity-0 group-focus-within:opacity-100 transition-opacity duration-500"></div>
                             <Search size={14} className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-500 group-focus-within:text-cyan-400 transition-colors z-10" />
-                            <input className="relative z-10 w-full bg-white/5 backdrop-blur-md text-xs text-cyan-50 pl-10 pr-4 py-2.5 rounded-full outline-none border border-white/10 focus:border-cyan-500/50 focus:bg-white/10 focus:shadow-[0_0_15px_rgba(6,182,212,0.2)] transition-all placeholder-gray-500 font-sans tracking-wide" placeholder="Search resources..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value.toLowerCase())} />
+                            <input className="relative z-10 w-full bg-white/5 backdrop-blur-md text-xs text-cyan-50 pl-10 pr-9 py-2.5 rounded-full outline-none border border-white/10 focus:border-cyan-500/50 focus:bg-white/10 focus:shadow-[0_0_15px_rgba(6,182,212,0.2)] transition-all placeholder-gray-500 font-sans tracking-wide" placeholder="Search resources..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value.toLowerCase())} />
+                            {searchTerm && (
+                                <button
+                                    onClick={() => setSearchTerm("")}
+                                    className="absolute right-3.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-white transition-colors z-20 p-0.5"
+                                    title="Clear search"
+                                >
+                                    <X size={13} />
+                                </button>
+                            )}
                         </div>
                     </div>
 
@@ -594,11 +682,14 @@ export default function Home() {
                                                 {expandedSemesters.includes(`${yData.year}-${sData.sem}`) && (
                                                     <div className="ml-4 mt-1 space-y-1">
                                                         {sData.folders.length === 0 && <div className="text-[10px] text-gray-700 pl-2 font-mono">NO_DATA_FOUND</div>}
-                                                        {sData.folders.map(folder => (
+                                                        {sData.folders.map(folder => {
+                                                            const hasCourseMatch = searchTerm.length > 0 && files.some(f => f.course_code === folder.code && f.title.toLowerCase().includes(searchTerm));
+                                                            return (
                                                             <div key={folder.id}>
                                                                 <button onClick={() => toggleState(setExpandedCourses, folder.code)} className="w-full flex items-center gap-2 p-2 hover:bg-white/5 rounded-lg text-xs text-gray-300 border border-transparent transition-colors group">
                                                                     {expandedCourses.includes(folder.code) ? <ChevronDown size={12} className="text-cyan-500" /> : <ChevronRight size={12} className="text-gray-600 group-hover:text-cyan-400" />}
-                                                                    <span className="font-bold text-cyan-200/80 tracking-wide group-hover:text-white transition-colors">{folder.code}</span>
+                                                                    <span className={`font-bold tracking-wide transition-colors ${hasCourseMatch ? 'text-cyan-300 drop-shadow-[0_0_8px_rgba(6,182,212,0.5)]' : 'text-cyan-200/80 group-hover:text-white'}`}>{folder.code}</span>
+                                                                    {hasCourseMatch && <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse shadow-[0_0_6px_rgba(34,211,238,0.8)] ml-auto" title="Contains matching files" />}
                                                                 </button>
 
                                                                 {expandedCourses.includes(folder.code) && (
@@ -611,15 +702,15 @@ export default function Home() {
                                                                                     <button onClick={() => toggleState(setExpandedCategories, catKey)} className={`w-full flex items-center gap-2 p-1.5 hover:bg-white/5 rounded text-[10px] uppercase font-mono tracking-wider transition-colors ${expandedCategories.includes(catKey) ? 'text-cyan-400' : 'text-gray-500 hover:text-gray-300'}`}>
                                                                                         {expandedCategories.includes(catKey) ? <ChevronDown size={10} /> : <ChevronRight size={10} />}
                                                                                         {cat}
-                                                                                        <span className="ml-auto text-[9px] bg-white/5 text-gray-400 px-1 rounded border border-white/5">{catFiles.length}</span>
+                                                                                        <span className={`ml-auto text-[9px] px-1 rounded border transition-colors ${searchTerm && catFiles.length > 0 ? 'bg-cyan-500/20 text-cyan-300 border-cyan-500/40 font-bold shadow-[0_0_6px_rgba(6,182,212,0.3)]' : 'bg-white/5 text-gray-400 border-white/5'}`}>{catFiles.length}</span>
                                                                                     </button>
                                                                                     {expandedCategories.includes(catKey) && (
                                                                                         <div className="ml-4 space-y-1 mt-1">
                                                                                             {catFiles.length === 0 && <div className="text-[9px] text-gray-700 italic px-2 font-mono">// EMPTY</div>}
                                                                                             {catFiles.map(file => (
                                                                                                 <div key={file.id} className="relative group">
-                                                                                                    <button onClick={() => { setSelectedFile(file); setIsMobileMenuOpen(false); }} className={`w-full text-left flex items-center gap-2 p-2 rounded text-[11px] border transition-colors ${selectedFile?.id === file.id ? 'bg-white/10 text-white border-white/20 shadow-sm' : 'hover:bg-white/5 text-gray-400 border-transparent bg-transparent hover:text-gray-200'}`}>
-                                                                                                        <FileText size={12} className={selectedFile?.id === file.id ? "text-cyan-300" : ""} /> <span className="truncate">{file.title}</span>
+                                                                                                    <button onClick={() => handleSelectFile(file)} className={`w-full text-left flex items-center gap-2 p-2 rounded text-[11px] border transition-colors ${selectedFile?.id === file.id ? 'bg-white/10 text-white border-white/20 shadow-sm' : (searchTerm && file.title.toLowerCase().includes(searchTerm) ? 'bg-cyan-500/10 text-cyan-200 border-cyan-500/30 font-medium' : 'hover:bg-white/5 text-gray-400 border-transparent bg-transparent hover:text-gray-200')}`}>
+                                                                                                        <FileText size={12} className={selectedFile?.id === file.id ? "text-cyan-300" : (searchTerm && file.title.toLowerCase().includes(searchTerm) ? "text-cyan-400" : "")} /> <span className="truncate"><HighlightText text={file.title} highlight={searchTerm} /></span>
                                                                                                     </button>
                                                                                                     {currentUser && (
                                                                                                         <button onClick={() => handleDeleteFile(file)} className="absolute right-1 top-1.5 p-1 text-red-400 opacity-0 group-hover:opacity-100 hover:bg-red-500/20 rounded transition-colors">
@@ -636,7 +727,7 @@ export default function Home() {
                                                                     </div>
                                                                 )}
                                                             </div>
-                                                        ))}
+                                                        );})}
                                                     </div>
                                                 )}
                                             </div>
@@ -708,85 +799,142 @@ export default function Home() {
                             layout 
                             className="flex-1 bg-white/[0.04] backdrop-blur-3xl md:rounded-2xl border-x md:border border-white/10 overflow-hidden shadow-[0_15px_40px_rgba(0,0,0,0.4)] relative flex flex-col"
                         >
-                            <div className="h-16 bg-black/20 border-b border-white/10 flex items-center justify-between px-5 gap-3 relative">
-                                <button onClick={handleGoHome} className="md:hidden mr-2 text-white hover:text-gray-300 transition">
-                                    <HomeIcon size={20} />
+                            <div className="h-16 bg-black/20 border-b border-white/10 flex items-center justify-between px-3 md:px-5 gap-2 md:gap-3 relative shrink-0">
+                                <button
+                                    onClick={handleGoHome}
+                                    className="p-2 -ml-1 md:ml-0 text-gray-400 hover:text-white hover:bg-white/10 rounded-xl transition-all flex items-center gap-1.5 shrink-0 group border border-transparent hover:border-white/10"
+                                    title="Back to Library"
+                                    aria-label="Back to Library"
+                                >
+                                    <ArrowLeft size={18} className="text-cyan-400 group-hover:-translate-x-0.5 transition-transform" />
+                                    <span className="text-xs font-mono uppercase hidden sm:inline text-gray-300">Back</span>
                                 </button>
-                                <div className="flex flex-col overflow-hidden flex-1">
+                                <div className="flex flex-col overflow-hidden flex-1 min-w-0">
                                     <div className="flex items-center gap-2">
-                                        <span className="text-[10px] bg-white/10 text-cyan-200 px-2.5 py-1 rounded-md border border-white/10 whitespace-nowrap font-medium tracking-wide">{selectedFile.category}</span>
-                                        <span className="text-[10px] text-gray-400 flex items-center gap-1 font-medium"><User size={12} /> {selectedFile.uploader || "UNKNOWN_USER"}</span>
+                                        <span className="text-[10px] bg-white/10 text-cyan-200 px-2.5 py-0.5 rounded-md border border-white/10 whitespace-nowrap font-medium tracking-wide">{selectedFile.category}</span>
+                                        <span className="text-[10px] text-gray-400 flex items-center gap-1 font-medium truncate"><User size={12} className="shrink-0" /> <span className="truncate">{selectedFile.uploader || "UNKNOWN_USER"}</span></span>
                                     </div>
-                                    <span className="text-sm font-bold text-gray-100 truncate mt-1 tracking-wide">{selectedFile.title}</span>
+                                    <span className="text-sm font-bold text-gray-100 truncate mt-0.5 tracking-wide">{selectedFile.title}</span>
                                 </div>
-                                <a href={selectedFile.pdf_url} target="_blank" className="hidden md:inline-flex text-[11px] text-white font-bold whitespace-nowrap ml-2 border border-white/20 bg-white/5 hover:bg-white/10 px-4 py-2 rounded-xl transition tracking-wide shadow-sm">EXTERNAL</a>
 
-                                {/* Mobile 3-Dot Menu */}
-                                <div className="relative md:hidden flex items-center">
-                                    <button onClick={() => setIsHeaderMenuOpen(!isHeaderMenuOpen)} className="p-2 text-cyan-400 hover:text-cyan-300 hover:bg-white/5 rounded-lg border border-white/5 transition-all">
-                                        <MoreVertical size={20} />
-                                    </button>
+                                {/* Desktop Actions */}
+                                <div className="hidden md:flex items-center gap-2 ml-2">
+                                    <a
+                                        href={getDirectDownloadUrl(selectedFile.pdf_url)}
+                                        download={selectedFile.title}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="inline-flex items-center gap-1.5 text-[11px] font-bold whitespace-nowrap border border-cyan-500/40 bg-cyan-500/10 hover:bg-cyan-500/25 text-cyan-200 hover:text-white px-3.5 py-2 rounded-xl transition-all tracking-wide shadow-[0_0_15px_rgba(6,182,212,0.15)] hover:shadow-[0_0_20px_rgba(6,182,212,0.3)] active:scale-95"
+                                        title="Direct Download File"
+                                    >
+                                        <Download size={14} className="text-cyan-400" />
+                                        <span>DOWNLOAD</span>
+                                    </a>
+                                    <a
+                                        href={selectedFile.pdf_url}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="inline-flex items-center gap-1.5 text-[11px] text-white font-bold whitespace-nowrap border border-white/20 bg-white/5 hover:bg-white/10 px-3.5 py-2 rounded-xl transition tracking-wide shadow-sm"
+                                        title="Open in External Tab"
+                                    >
+                                        <ExternalLink size={13} className="text-gray-400" />
+                                        <span>EXTERNAL</span>
+                                    </a>
+                                </div>
 
-                                    {isHeaderMenuOpen && (
-                                        <div className="fixed inset-0 z-40" onClick={() => setIsHeaderMenuOpen(false)} />
-                                    )}
+                                {/* Mobile Actions */}
+                                <div className="flex md:hidden items-center gap-1">
+                                    <a
+                                        href={getDirectDownloadUrl(selectedFile.pdf_url)}
+                                        download={selectedFile.title}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="p-2 text-cyan-300 hover:text-white bg-cyan-500/10 hover:bg-cyan-500/20 border border-cyan-500/30 rounded-xl transition-all shadow-[0_0_12px_rgba(6,182,212,0.15)] flex items-center justify-center shrink-0"
+                                        title="Direct Download"
+                                        aria-label="Direct Download"
+                                    >
+                                        <Download size={18} className="text-cyan-400" />
+                                    </a>
 
-                                    <AnimatePresence>
+                                    {/* Mobile 3-Dot Menu */}
+                                    <div className="relative flex items-center">
+                                        <button onClick={() => setIsHeaderMenuOpen(!isHeaderMenuOpen)} className="p-2 text-cyan-400 hover:text-cyan-300 hover:bg-white/5 rounded-lg border border-white/5 transition-all">
+                                            <MoreVertical size={20} />
+                                        </button>
+
                                         {isHeaderMenuOpen && (
-                                            <motion.div
-                                                initial={{ opacity: 0, scale: 0.95, y: -10 }}
-                                                animate={{ opacity: 1, scale: 1, y: 0 }}
-                                                exit={{ opacity: 0, scale: 0.95, y: -10 }}
-                                                transition={{ duration: 0.15 }}
-                                                className="absolute right-0 top-full mt-2 w-48 bg-[#0a0a0c]/95 backdrop-blur-xl border border-white/10 rounded-xl shadow-[0_8px_32px_rgba(0,0,0,0.5)] z-50 overflow-hidden"
-                                            >
-                                                <div className="absolute top-0 left-0 w-full h-[1px] bg-gradient-to-r from-transparent via-cyan-400/30 to-transparent"></div>
-                                                <div className="p-1.5 flex flex-col gap-1">
-                                                    <button
-                                                        onClick={() => {
-                                                            setIsMobileMenuOpen(true);
-                                                            setIsHeaderMenuOpen(false);
-                                                        }}
-                                                        className="flex items-center gap-2 px-3 py-2 text-xs font-mono uppercase text-gray-300 hover:text-white hover:bg-white/5 rounded-lg transition-colors text-left w-full"
-                                                    >
-                                                        <Menu size={14} className="text-cyan-400" />
-                                                        <span>Browse Library</span>
-                                                    </button>
-                                                    <button
-                                                        onClick={() => {
-                                                            setIsAiOpen(!isAiOpen);
-                                                            setIsHeaderMenuOpen(false);
-                                                        }}
-                                                        className="flex items-center gap-2 px-3 py-2 text-xs font-mono uppercase text-gray-300 hover:text-white hover:bg-white/5 rounded-lg transition-colors text-left w-full"
-                                                    >
-                                                        <MessageSquare size={14} className="text-fuchsia-400" />
-                                                        <span>Tutor AI</span>
-                                                    </button>
-                                                    <a
-                                                        href={selectedFile.pdf_url}
-                                                        target="_blank"
-                                                        rel="noopener noreferrer"
-                                                        onClick={() => setIsHeaderMenuOpen(false)}
-                                                        className="flex items-center gap-2 px-3 py-2 text-xs font-mono uppercase text-gray-300 hover:text-white hover:bg-white/5 rounded-lg transition-colors text-left w-full"
-                                                    >
-                                                        <ExternalLink size={14} className="text-cyan-400" />
-                                                        <span>External Link</span>
-                                                    </a>
-                                                    <div className="h-[1px] bg-white/5 my-1"></div>
-                                                    <button
-                                                        onClick={() => {
-                                                            handleGoHome();
-                                                            setIsHeaderMenuOpen(false);
-                                                        }}
-                                                        className="flex items-center gap-2 px-3 py-2 text-xs font-mono uppercase text-red-400 hover:text-red-300 hover:bg-red-500/10 rounded-lg transition-colors text-left w-full"
-                                                    >
-                                                        <HomeIcon size={14} className="text-red-400" />
-                                                        <span>Go Home</span>
-                                                    </button>
-                                                </div>
-                                            </motion.div>
+                                            <div className="fixed inset-0 z-40" onClick={() => setIsHeaderMenuOpen(false)} />
                                         )}
-                                    </AnimatePresence>
+
+                                        <AnimatePresence>
+                                            {isHeaderMenuOpen && (
+                                                <motion.div
+                                                    initial={{ opacity: 0, scale: 0.95, y: -10 }}
+                                                    animate={{ opacity: 1, scale: 1, y: 0 }}
+                                                    exit={{ opacity: 0, scale: 0.95, y: -10 }}
+                                                    transition={{ duration: 0.15 }}
+                                                    className="absolute right-0 top-full mt-2 w-52 bg-[#0a0a0c]/95 backdrop-blur-xl border border-white/10 rounded-xl shadow-[0_8px_32px_rgba(0,0,0,0.5)] z-50 overflow-hidden"
+                                                >
+                                                    <div className="absolute top-0 left-0 w-full h-[1px] bg-gradient-to-r from-transparent via-cyan-400/30 to-transparent"></div>
+                                                    <div className="p-1.5 flex flex-col gap-1">
+                                                        <a
+                                                            href={getDirectDownloadUrl(selectedFile.pdf_url)}
+                                                            download={selectedFile.title}
+                                                            target="_blank"
+                                                            rel="noopener noreferrer"
+                                                            onClick={() => setIsHeaderMenuOpen(false)}
+                                                            className="flex items-center gap-2 px-3 py-2 text-xs font-mono uppercase text-cyan-300 hover:text-cyan-200 hover:bg-cyan-500/10 rounded-lg transition-colors text-left w-full font-bold"
+                                                        >
+                                                            <Download size={14} className="text-cyan-400" />
+                                                            <span>Direct Download</span>
+                                                        </a>
+                                                        <div className="h-[1px] bg-white/5 my-0.5"></div>
+                                                        <button
+                                                            onClick={() => {
+                                                                setIsMobileMenuOpen(true);
+                                                                setIsHeaderMenuOpen(false);
+                                                            }}
+                                                            className="flex items-center gap-2 px-3 py-2 text-xs font-mono uppercase text-gray-300 hover:text-white hover:bg-white/5 rounded-lg transition-colors text-left w-full"
+                                                        >
+                                                            <Menu size={14} className="text-cyan-400" />
+                                                            <span>Browse Library</span>
+                                                        </button>
+                                                        <button
+                                                            onClick={() => {
+                                                                setIsAiOpen(!isAiOpen);
+                                                                setIsHeaderMenuOpen(false);
+                                                            }}
+                                                            className="flex items-center gap-2 px-3 py-2 text-xs font-mono uppercase text-gray-300 hover:text-white hover:bg-white/5 rounded-lg transition-colors text-left w-full"
+                                                        >
+                                                            <MessageSquare size={14} className="text-fuchsia-400" />
+                                                            <span>Tutor AI</span>
+                                                        </button>
+                                                        <a
+                                                            href={selectedFile.pdf_url}
+                                                            target="_blank"
+                                                            rel="noopener noreferrer"
+                                                            onClick={() => setIsHeaderMenuOpen(false)}
+                                                            className="flex items-center gap-2 px-3 py-2 text-xs font-mono uppercase text-gray-300 hover:text-white hover:bg-white/5 rounded-lg transition-colors text-left w-full"
+                                                        >
+                                                            <ExternalLink size={14} className="text-cyan-400" />
+                                                            <span>External Link</span>
+                                                        </a>
+                                                        <div className="h-[1px] bg-white/5 my-1"></div>
+                                                        <button
+                                                            onClick={() => {
+                                                                handleGoHome();
+                                                                setIsHeaderMenuOpen(false);
+                                                            }}
+                                                            className="flex items-center gap-2 px-3 py-2 text-xs font-mono uppercase text-red-400 hover:text-red-300 hover:bg-red-500/10 rounded-lg transition-colors text-left w-full"
+                                                        >
+                                                            <ArrowLeft size={14} className="text-red-400" />
+                                                            <span>Back to Library</span>
+                                                        </button>
+                                                    </div>
+                                                </motion.div>
+                                            )}
+                                        </AnimatePresence>
+                                    </div>
                                 </div>
                             </div>
 
@@ -866,6 +1014,23 @@ export default function Home() {
                         <div className="absolute inset-0 bg-[url('https://transparenttextures.com/patterns/cubes.png')] opacity-[0.015] pointer-events-none"></div>
 
                         <div className="flex-1 p-4 md:p-8 overflow-y-auto custom-scrollbar flex flex-col z-10">
+                            {currentUser && searchTerm && (
+                                <div className="flex items-center justify-between mb-5 pb-3 border-b border-white/10">
+                                    <div className="flex items-center gap-2">
+                                        <Search size={14} className="text-cyan-400" />
+                                        <p className="text-xs font-mono text-gray-300">
+                                            Found <span className="text-cyan-300 font-bold">{dashboardFiles.length}</span> resource{dashboardFiles.length === 1 ? '' : 's'} matching "<span className="text-white font-semibold">{searchTerm}</span>"
+                                        </p>
+                                    </div>
+                                    <button
+                                        onClick={() => setSearchTerm("")}
+                                        className="text-[11px] font-mono text-cyan-400 hover:text-cyan-300 uppercase tracking-wider transition-colors hover:underline flex items-center gap-1"
+                                    >
+                                        <X size={12} /> Clear Filter
+                                    </button>
+                                </div>
+                            )}
+
                             {currentUser && dashboardFiles.length > 0 ? (
                                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6 mb-8">
                                     {dashboardFiles.map((file, idx) => (
@@ -875,8 +1040,8 @@ export default function Home() {
                                             viewport={{ once: true, margin: "100px" }}
                                             transition={{ duration: 0.4, ease: "easeOut" }}
                                             key={file.id} 
-                                            className="group bg-white/[0.04] backdrop-blur-md border border-white/10 hover:border-white/30 p-5 rounded-2xl transition-all duration-300 hover:-translate-y-1 hover:shadow-[0_10px_30px_rgba(0,0,0,0.3)] hover:bg-white/[0.08] flex flex-col gap-4 relative cursor-pointer overflow-hidden" 
-                                            onClick={() => setSelectedFile(file)}
+                                            className={`group bg-white/[0.04] backdrop-blur-md border ${searchTerm ? 'border-cyan-500/40 shadow-[0_0_20px_rgba(6,182,212,0.15)] bg-white/[0.07]' : 'border-white/10 hover:border-white/30'} p-5 rounded-2xl transition-all duration-300 hover:-translate-y-1 hover:shadow-[0_10px_30px_rgba(0,0,0,0.3)] hover:bg-white/[0.08] flex flex-col gap-4 relative cursor-pointer overflow-hidden`} 
+                                            onClick={() => handleSelectFile(file)}
                                         >
                                             {/* Very subtle corners */}
                                             <div className="absolute top-0 left-0 w-3 h-3 border-t border-l border-white/20 opacity-0 group-hover:opacity-100 transition-opacity rounded-tl-sm z-20"></div>
@@ -890,7 +1055,9 @@ export default function Home() {
 
                                             <div className="flex items-start justify-between z-10">
                                                 <div className="flex-1 min-w-0">
-                                                    <h3 className="font-bold text-gray-100 text-[15px] truncate tracking-wide group-hover:text-white transition-colors">{file.title}</h3>
+                                                    <h3 className="font-bold text-gray-100 text-[15px] truncate tracking-wide group-hover:text-white transition-colors">
+                                                        <HighlightText text={file.title} highlight={searchTerm} />
+                                                    </h3>
                                                     <p className="text-[11px] text-gray-400 mt-1 flex items-center gap-1 font-medium"><User size={12} /> {file.uploader || "UNKNOWN"}</p>
                                                 </div>
                                                 {currentUser && (
@@ -909,7 +1076,17 @@ export default function Home() {
                                     {currentUser ? (
                                         <>
                                             <Grid size={56} className="text-white/10 drop-shadow-sm" />
-                                            <p className="font-mono tracking-widest uppercase text-sm text-gray-600">NO_DATA_FOUND</p>
+                                            <p className="font-mono tracking-widest uppercase text-sm text-gray-400">
+                                                {searchTerm ? `No files matching "${searchTerm}"` : 'NO_DATA_FOUND'}
+                                            </p>
+                                            {searchTerm && (
+                                                <button
+                                                    onClick={() => setSearchTerm("")}
+                                                    className="text-xs font-mono text-cyan-400 hover:text-cyan-300 underline underline-offset-4 transition-colors"
+                                                >
+                                                    Clear Search Filter
+                                                </button>
+                                            )}
                                         </>
                                     ) : (
                                         <div className="flex-1 flex flex-col items-center justify-center p-8 max-w-2xl text-center z-20">
