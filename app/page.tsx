@@ -8,7 +8,8 @@ import {
     ChevronRight, ChevronDown, Folder, Sparkles, MessageSquare,
     Minimize2, Loader2, GraduationCap, Menu, Search, FolderPlus,
     File, User, Lightbulb, Grid, Home as HomeIcon, MoreVertical, ExternalLink,
-    Download, ArrowLeft, BarChart2, Users, Activity, Eye, Clock, RefreshCw
+    Download, ArrowLeft, BarChart2, Users, Activity, Eye, Clock, RefreshCw,
+    Fingerprint, ShieldCheck, ShieldAlert, KeyRound, LogIn
 } from 'lucide-react';
 
 import ReactMarkdown from 'react-markdown';
@@ -192,6 +193,10 @@ export default function Home() {
     const [authForm, setAuthForm] = useState({ id: "", email: "", password: "", otp: "", newPassword: "" });
     const [isAuthLoading, setIsAuthLoading] = useState(false);
 
+    // Auto-Login States
+    const [autoLoginStatus, setAutoLoginStatus] = useState<'idle' | 'processing' | 'success' | 'failed'>('processing');
+    const [autoLoginMessage, setAutoLoginMessage] = useState<string>("");
+
     // Traffic & Analytics States
     const [showTrafficModal, setShowTrafficModal] = useState(false);
     const [trafficData, setTrafficData] = useState<{ summary: any, students: any[] } | null>(null);
@@ -270,16 +275,23 @@ export default function Home() {
 
     function exportTrafficCsv() {
         if (!trafficData?.students?.length) return alert("No student data to export.");
-        const headers = ["Student ID", "Name", "Email", "Status", "Website Opens (Traffic)", "Logins", "Last Active"];
-        const rows = trafficData.students.map(s => [
-            `"${s.id}"`,
-            `"${(s.name || '').replace(/"/g, '""')}"`,
-            `"${s.email || 'Unregistered'}"`,
-            `"${s.isRegistered ? 'Registered' : 'Pending'}"`,
-            s.traffic_count || 0,
-            s.login_count || 0,
-            `"${s.last_visited_at ? new Date(s.last_visited_at).toLocaleString() : 'Never'}"`
-        ]);
+        const headers = ["Student ID", "Name", "Email", "Status", "Website Opens (Traffic)", "Logins", "Devices & Browsers Used", "Last Active"];
+        const rows = trafficData.students.map(s => {
+            const devicesSummary = (s.devices && s.devices.length > 0)
+                ? s.devices.map((d: any) => `${d.os} (${d.browser})${d.count > 1 ? ` x${d.count}` : ''}`).join('; ')
+                : (s.device?.label || 'No visit yet');
+
+            return [
+                `"${s.id}"`,
+                `"${(s.name || '').replace(/"/g, '""')}"`,
+                `"${s.email || 'Unregistered'}"`,
+                `"${s.isRegistered ? 'Registered' : 'Pending'}"`,
+                s.traffic_count || 0,
+                s.login_count || 0,
+                `"${devicesSummary}"`,
+                `"${s.last_visited_at ? new Date(s.last_visited_at).toLocaleString() : 'Never'}"`
+            ];
+        });
         const csvContent = "data:text/csv;charset=utf-8," + [headers.join(","), ...rows.map(e => e.join(","))].join("\n");
         const encodedUri = encodeURI(csvContent);
         const link = document.createElement("a");
@@ -292,18 +304,58 @@ export default function Home() {
 
     useEffect(() => {
         fetchData();
-        fetchUser();
+        attemptAutoLogin();
     }, []);
 
-    async function fetchUser() {
+    async function attemptAutoLogin() {
+        setAutoLoginStatus('processing');
+        if (typeof window !== 'undefined') {
+            localStorage.removeItem('statnotes_saved_id');
+        }
+        const startTime = Date.now();
         try {
             const res = await fetch('/api/auth/me');
             const data = await res.json();
+
+            // Smooth minimum animation duration (850ms) for high-tech biometric scan effect
+            const elapsed = Date.now() - startTime;
+            if (elapsed < 850) {
+                await new Promise(r => setTimeout(r, 850 - elapsed));
+            }
+
             if (data.success && data.user) {
                 setCurrentUser(data.user);
                 recordTrafficSession(data.user);
+                setAutoLoginStatus('success');
+                setTimeout(() => {
+                    setAutoLoginStatus('idle');
+                }, 1000);
+            } else {
+                setAutoLoginStatus('failed');
+                setAutoLoginMessage("No active session found or session has expired. Please log in with your Student ID and Password.");
             }
-        } catch (e) { console.error("Error fetching user", e); }
+        } catch (e) {
+            console.error("Auto login error:", e);
+            const elapsed = Date.now() - startTime;
+            if (elapsed < 850) {
+                await new Promise(r => setTimeout(r, 850 - elapsed));
+            }
+            setAutoLoginStatus('failed');
+            setAutoLoginMessage("Unable to verify session. Please log in with your Student ID and Password.");
+        }
+    }
+
+    function openLoginModal(mode: 'login' | 'register' = 'login') {
+        setAuthMode(mode);
+        setAuthForm({ id: "", email: "", password: "", otp: "", newPassword: "" });
+        if (typeof window !== 'undefined') {
+            localStorage.removeItem('statnotes_saved_id');
+        }
+        setShowAdminModal(true);
+    }
+
+    function openLoginWithIdPassword() {
+        openLoginModal('login');
     }
 
     useEffect(() => {
@@ -439,6 +491,7 @@ export default function Home() {
                 if (authMode === 'login' || authMode === 'register') {
                     setCurrentUser(data.user);
                     recordTrafficSession(data.user);
+                    setAutoLoginStatus('idle');
                     setShowAdminModal(false);
                     setAuthForm({ id: "", email: "", password: "", otp: "", newPassword: "" });
                 } else if (authMode === 'forgot_password') {
@@ -463,6 +516,7 @@ export default function Home() {
         if (confirm("Terminate Session?")) {
             await fetch('/api/auth/logout', { method: 'POST' });
             setCurrentUser(null);
+            setAutoLoginStatus('idle');
         }
     }
 
@@ -810,9 +864,18 @@ export default function Home() {
                             </AnimatePresence>
                         </div>
                     )) : (
-                        <div className="h-full flex flex-col items-center justify-center opacity-50 p-4 text-center">
-                            <Lock size={32} className="mb-2 text-cyan-500" />
-                            <p className="text-xs font-mono text-cyan-400 uppercase tracking-widest mt-2">Login Required</p>
+                        <div className="h-full flex flex-col items-center justify-center opacity-60 p-4 text-center">
+                            {autoLoginStatus === 'processing' ? (
+                                <>
+                                    <Loader2 size={24} className="mb-2 text-cyan-400 animate-spin" />
+                                    <p className="text-[10px] font-mono text-cyan-400 uppercase tracking-widest mt-1">Authenticating...</p>
+                                </>
+                            ) : (
+                                <>
+                                    <Lock size={32} className="mb-2 text-cyan-500" />
+                                    <p className="text-xs font-mono text-cyan-400 uppercase tracking-widest mt-2">Login Required</p>
+                                </>
+                            )}
                         </div>
                     )}
                 </div>
@@ -821,7 +884,7 @@ export default function Home() {
                     {!currentUser ? (
                         <>
                             <button
-                                onClick={() => setShowAdminModal(true)}
+                                onClick={() => openLoginModal('login')}
                                 className="flex-1 bg-white/5 hover:bg-white/10 text-cyan-400/80 hover:text-cyan-300 rounded-lg flex items-center justify-center gap-2 py-2.5 text-xs font-bold border border-white/10 transition uppercase tracking-widest"
                             >
                                 <Unlock size={14} /> Login
@@ -1181,39 +1244,185 @@ export default function Home() {
                                             )}
                                         </>
                                     ) : (
-                                        <div className="flex-1 flex flex-col items-center justify-center p-8 max-w-2xl text-center z-20">
-                                            <div className="w-24 h-24 mb-6 relative flex items-center justify-center">
-                                                <div className="absolute inset-0 bg-white/5 rounded-full animate-ping opacity-20 duration-1000"></div>
-                                                <div className="absolute inset-0 bg-white/10 rounded-full backdrop-blur-xl border border-white/20 flex items-center justify-center shadow-[0_0_30px_rgba(255,255,255,0.1)]">
-                                                    <Lock size={32} className="text-white drop-shadow-md" />
-                                                </div>
-                                            </div>
-                                            
-                                            <h2 className="text-3xl font-black text-transparent bg-clip-text bg-gradient-to-r from-white to-gray-400 mb-6 tracking-tight drop-shadow-sm">Access Knowledge Base</h2>
-                                            
-                                            <div className="h-16 mb-8 relative w-full flex items-center justify-center overflow-visible">
-                                                <AnimatePresence mode="wait">
-                                                    <motion.p
-                                                        key={quoteIndex}
-                                                        initial={{ opacity: 0, y: 10, filter: "blur(4px)" }}
-                                                        animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
-                                                        exit={{ opacity: 0, y: -10, filter: "blur(4px)" }}
-                                                        transition={{ duration: 0.6, ease: "easeOut" }}
-                                                        className="text-sm md:text-base font-medium text-gray-300 italic leading-relaxed max-w-lg absolute text-center"
+                                        <div className="flex-1 flex flex-col items-center justify-center p-4 sm:p-8 max-w-2xl text-center z-20 w-full">
+                                            <AnimatePresence mode="wait">
+                                                {autoLoginStatus === 'processing' && (
+                                                    <motion.div
+                                                        key="auto-login-processing"
+                                                        initial={{ opacity: 0, scale: 0.95 }}
+                                                        animate={{ opacity: 1, scale: 1 }}
+                                                        exit={{ opacity: 0, scale: 0.95 }}
+                                                        transition={{ duration: 0.3 }}
+                                                        className="w-full max-w-md p-6 sm:p-8 rounded-3xl bg-white/[0.04] backdrop-blur-2xl border border-cyan-500/30 shadow-[0_15px_40px_rgba(0,0,0,0.5),0_0_30px_rgba(6,182,212,0.15)] flex flex-col items-center relative overflow-hidden"
                                                     >
-                                                        "{STAT_QUOTES[quoteIndex]}"
-                                                    </motion.p>
-                                                </AnimatePresence>
-                                            </div>
+                                                        {/* Cyber Scan Top Glow Line */}
+                                                        <div className="absolute top-0 left-0 w-full h-[2px] bg-gradient-to-r from-transparent via-cyan-400 to-transparent animate-pulse"></div>
 
-                                            <button 
-                                                onClick={() => setShowAdminModal(true)} 
-                                                className="group relative px-8 py-3.5 bg-white/10 hover:bg-white/20 backdrop-blur-md rounded-xl transition-all duration-300 border border-white/20 shadow-[0_8px_20px_rgba(0,0,0,0.2)] hover:shadow-[0_10px_30px_rgba(255,255,255,0.1)] hover:-translate-y-1 overflow-hidden"
-                                            >
-                                                <span className="relative text-sm font-bold tracking-widest text-white uppercase drop-shadow-sm flex items-center gap-2">
-                                                    Login to Access <ChevronRight size={16} className="group-hover:translate-x-1 transition-transform" />
-                                                </span>
-                                            </button>
+                                                        {/* Biometric Scanning Radar Graphic */}
+                                                        <div className="relative w-28 h-28 mb-5 flex items-center justify-center">
+                                                            {/* Concentric rotating radar rings */}
+                                                            <div className="absolute inset-0 rounded-full border border-cyan-500/20 animate-ping opacity-30" style={{ animationDuration: '2.5s' }}></div>
+                                                            <div className="absolute inset-2 rounded-full border-2 border-dashed border-cyan-500/40 animate-spin" style={{ animationDuration: '10s' }}></div>
+                                                            <div className="absolute inset-4 rounded-full border border-dashed border-fuchsia-500/40 animate-spin" style={{ animationDuration: '6s', animationDirection: 'reverse' }}></div>
+
+                                                            {/* Central Biometric Scanner Core */}
+                                                            <div className="relative w-16 h-16 rounded-2xl bg-gradient-to-br from-cyan-500/20 via-blue-500/10 to-fuchsia-500/20 border border-white/20 backdrop-blur-md flex items-center justify-center shadow-[0_0_25px_rgba(6,182,212,0.3)] overflow-hidden">
+                                                                <Fingerprint size={32} className="text-cyan-300 animate-pulse drop-shadow-[0_0_10px_rgba(6,182,212,0.8)]" />
+                                                                
+                                                                {/* Moving Laser Beam Sweep */}
+                                                                <motion.div
+                                                                    animate={{ y: [-26, 26, -26] }}
+                                                                    transition={{ repeat: Infinity, duration: 1.8, ease: "easeInOut" }}
+                                                                    className="absolute w-full h-[2px] bg-gradient-to-r from-transparent via-cyan-300 to-transparent shadow-[0_0_8px_rgba(34,211,238,1)]"
+                                                                />
+                                                            </div>
+                                                        </div>
+
+                                                        {/* Status Badge */}
+                                                        <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-cyan-500/10 border border-cyan-500/30 text-cyan-300 font-mono text-[11px] uppercase tracking-widest mb-3 shadow-[0_0_15px_rgba(6,182,212,0.15)]">
+                                                            <span className="w-2 h-2 rounded-full bg-cyan-400 animate-ping"></span>
+                                                            <span>Auto-Login In Progress</span>
+                                                        </div>
+
+                                                        <h3 className="text-lg sm:text-xl font-black text-white tracking-wide uppercase mb-1">
+                                                            Authenticating Session
+                                                        </h3>
+                                                        <p className="text-xs text-gray-400 font-mono max-w-xs leading-relaxed mb-5">
+                                                            Verifying device credentials and retrieving student records...
+                                                        </p>
+
+                                                        {/* High-tech animated progress track */}
+                                                        <div className="w-48 sm:w-56 h-1.5 bg-black/40 rounded-full overflow-hidden border border-white/10 relative">
+                                                            <motion.div
+                                                                animate={{ x: ["-100%", "100%"] }}
+                                                                transition={{ repeat: Infinity, duration: 1.2, ease: "easeInOut" }}
+                                                                className="w-1/2 h-full bg-gradient-to-r from-transparent via-cyan-400 to-transparent shadow-[0_0_10px_rgba(6,182,212,0.8)]"
+                                                            />
+                                                        </div>
+                                                    </motion.div>
+                                                )}
+
+                                                {autoLoginStatus === 'failed' && (
+                                                    <motion.div
+                                                        key="auto-login-failed"
+                                                        initial={{ opacity: 0, scale: 0.95 }}
+                                                        animate={{ opacity: 1, scale: 1 }}
+                                                        exit={{ opacity: 0, scale: 0.95 }}
+                                                        transition={{ duration: 0.3 }}
+                                                        className="w-full max-w-md p-6 sm:p-8 rounded-3xl bg-white/[0.04] backdrop-blur-2xl border border-rose-500/30 shadow-[0_15px_40px_rgba(0,0,0,0.5),0_0_30px_rgba(244,63,94,0.12)] flex flex-col items-center relative overflow-hidden"
+                                                    >
+                                                        {/* Red/Amber Warning Accent Line */}
+                                                        <div className="absolute top-0 left-0 w-full h-[2px] bg-gradient-to-r from-transparent via-rose-400 to-amber-400"></div>
+
+                                                        {/* Key/Lock Alert Icon */}
+                                                        <div className="w-20 h-20 mb-4 rounded-2xl bg-gradient-to-br from-rose-500/15 via-amber-500/10 to-rose-500/5 border border-rose-500/30 flex items-center justify-center text-rose-400 shadow-[0_0_25px_rgba(244,63,94,0.2)]">
+                                                            <KeyRound size={34} className="text-rose-300 drop-shadow-[0_0_10px_rgba(244,63,94,0.6)]" />
+                                                        </div>
+
+                                                        {/* Status Pill */}
+                                                        <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-rose-500/10 border border-rose-500/30 text-rose-300 font-mono text-[11px] uppercase tracking-widest mb-2.5">
+                                                            <ShieldAlert size={12} />
+                                                            <span>Auto-Login Not Found / Expired</span>
+                                                        </div>
+
+                                                        <h3 className="text-lg sm:text-xl font-black text-white tracking-wide uppercase mb-2">
+                                                            Please Login Again
+                                                        </h3>
+
+                                                        <p className="text-xs sm:text-sm text-gray-300 leading-relaxed max-w-xs mb-6 font-medium">
+                                                            No active session was detected on this device. Please log in with your <strong className="text-cyan-300 font-semibold">Student ID & Password</strong> to continue.
+                                                        </p>
+
+                                                        {/* Primary Action Button: Login with ID & Password */}
+                                                        <div className="w-full flex flex-col gap-2.5">
+                                                            <button
+                                                                onClick={openLoginWithIdPassword}
+                                                                className="w-full py-3.5 px-5 bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-white font-bold text-xs sm:text-sm tracking-wider uppercase rounded-xl shadow-[0_0_25px_rgba(6,182,212,0.35)] hover:shadow-[0_0_35px_rgba(6,182,212,0.5)] hover:-translate-y-0.5 transition-all flex items-center justify-center gap-2"
+                                                            >
+                                                                <LogIn size={16} />
+                                                                <span>Login with ID & Password</span>
+                                                            </button>
+
+                                                            <button
+                                                                onClick={() => attemptAutoLogin()}
+                                                                className="w-full py-2.5 px-4 bg-white/5 hover:bg-white/10 text-gray-400 hover:text-white font-mono text-[11px] tracking-wider uppercase rounded-xl border border-white/10 transition-colors flex items-center justify-center gap-1.5"
+                                                            >
+                                                                <RefreshCw size={12} />
+                                                                <span>Retry Auto-Login</span>
+                                                            </button>
+                                                        </div>
+                                                    </motion.div>
+                                                )}
+
+                                                {autoLoginStatus === 'success' && (
+                                                    <motion.div
+                                                        key="auto-login-success"
+                                                        initial={{ opacity: 0, scale: 0.95 }}
+                                                        animate={{ opacity: 1, scale: 1 }}
+                                                        exit={{ opacity: 0, scale: 0.95 }}
+                                                        transition={{ duration: 0.3 }}
+                                                        className="w-full max-w-md p-6 sm:p-8 rounded-3xl bg-white/[0.04] backdrop-blur-2xl border border-emerald-500/30 shadow-[0_15px_40px_rgba(0,0,0,0.5),0_0_30px_rgba(16,185,129,0.2)] flex flex-col items-center relative overflow-hidden"
+                                                    >
+                                                        <div className="absolute top-0 left-0 w-full h-[2px] bg-gradient-to-r from-transparent via-emerald-400 to-transparent"></div>
+                                                        <div className="w-20 h-20 mb-4 rounded-2xl bg-emerald-500/15 border border-emerald-500/30 flex items-center justify-center text-emerald-300 shadow-[0_0_25px_rgba(16,185,129,0.3)]">
+                                                            <ShieldCheck size={36} className="text-emerald-300 drop-shadow-[0_0_12px_rgba(16,185,129,0.8)]" />
+                                                        </div>
+                                                        <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 font-mono text-[11px] uppercase tracking-widest mb-2.5">
+                                                            <span>✓ Session Verified</span>
+                                                        </div>
+                                                        <h3 className="text-lg sm:text-xl font-black text-white tracking-wide uppercase mb-1">
+                                                            Welcome Back!
+                                                        </h3>
+                                                        <p className="text-xs text-gray-300 font-mono">
+                                                            Unlocking your courses and study materials...
+                                                        </p>
+                                                    </motion.div>
+                                                )}
+
+                                                {autoLoginStatus === 'idle' && (
+                                                    <motion.div
+                                                        key="auto-login-idle"
+                                                        initial={{ opacity: 0, scale: 0.95 }}
+                                                        animate={{ opacity: 1, scale: 1 }}
+                                                        exit={{ opacity: 0, scale: 0.95 }}
+                                                        transition={{ duration: 0.3 }}
+                                                        className="w-full max-w-lg flex flex-col items-center"
+                                                    >
+                                                        <div className="w-24 h-24 mb-6 relative flex items-center justify-center">
+                                                            <div className="absolute inset-0 bg-white/5 rounded-full animate-ping opacity-20 duration-1000"></div>
+                                                            <div className="absolute inset-0 bg-white/10 rounded-full backdrop-blur-xl border border-white/20 flex items-center justify-center shadow-[0_0_30px_rgba(255,255,255,0.1)]">
+                                                                <Lock size={32} className="text-white drop-shadow-md" />
+                                                            </div>
+                                                        </div>
+                                                        
+                                                        <h2 className="text-3xl font-black text-transparent bg-clip-text bg-gradient-to-r from-white to-gray-400 mb-6 tracking-tight drop-shadow-sm">Access Knowledge Base</h2>
+                                                        
+                                                        <div className="h-16 mb-8 relative w-full flex items-center justify-center overflow-visible">
+                                                            <AnimatePresence mode="wait">
+                                                                <motion.p
+                                                                    key={quoteIndex}
+                                                                    initial={{ opacity: 0, y: 10, filter: "blur(4px)" }}
+                                                                    animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
+                                                                    exit={{ opacity: 0, y: -10, filter: "blur(4px)" }}
+                                                                    transition={{ duration: 0.6, ease: "easeOut" }}
+                                                                    className="text-sm md:text-base font-medium text-gray-300 italic leading-relaxed max-w-lg absolute text-center"
+                                                                >
+                                                                    "{STAT_QUOTES[quoteIndex]}"
+                                                                </motion.p>
+                                                            </AnimatePresence>
+                                                        </div>
+
+                                                        <button 
+                                                            onClick={() => openLoginModal('login')} 
+                                                            className="group relative px-8 py-3.5 bg-white/10 hover:bg-white/20 backdrop-blur-md rounded-xl transition-all duration-300 border border-white/20 shadow-[0_8px_20px_rgba(0,0,0,0.2)] hover:shadow-[0_10px_30px_rgba(255,255,255,0.1)] hover:-translate-y-1 overflow-hidden"
+                                                        >
+                                                            <span className="relative text-sm font-bold tracking-widest text-white uppercase drop-shadow-sm flex items-center gap-2">
+                                                                Login to Access <ChevronRight size={16} className="group-hover:translate-x-1 transition-transform" />
+                                                            </span>
+                                                        </button>
+                                                    </motion.div>
+                                                )}
+                                            </AnimatePresence>
                                         </div>
                                     )}
                                 </div>
@@ -1324,130 +1533,136 @@ export default function Home() {
                         initial={{ opacity: 0 }}
                         animate={{ opacity: 1 }}
                         exit={{ opacity: 0 }}
-                        className="fixed inset-0 bg-black/70 backdrop-blur-md z-[75] flex items-center justify-center p-3 md:p-6"
+                        className="fixed inset-0 bg-black/80 backdrop-blur-md z-[75] flex items-center justify-center p-2 sm:p-4 md:p-6"
                     >
                         <motion.div 
-                            initial={{ scale: 0.95, y: 20, opacity: 0 }}
+                            initial={{ scale: 0.95, y: 15, opacity: 0 }}
                             animate={{ scale: 1, y: 0, opacity: 1 }}
-                            exit={{ scale: 0.95, y: 20, opacity: 0 }}
-                            transition={{ type: "spring", damping: 25, stiffness: 300 }}
-                            className="relative w-full max-w-5xl max-h-[92vh] flex flex-col bg-[#09090d]/95 border border-white/15 rounded-3xl shadow-[0_25px_60px_rgba(0,0,0,0.8)] backdrop-blur-3xl overflow-hidden"
+                            exit={{ scale: 0.95, y: 15, opacity: 0 }}
+                            transition={{ type: "spring", damping: 26, stiffness: 320 }}
+                            className="relative w-full max-w-5xl h-[94dvh] sm:h-[88vh] flex flex-col bg-[#09090d]/98 border border-white/15 rounded-2xl sm:rounded-3xl shadow-[0_25px_70px_rgba(0,0,0,0.9)] backdrop-blur-3xl overflow-hidden"
                         >
                             {/* Neon accent line at top */}
                             <div className="absolute top-0 left-0 w-full h-[2px] bg-gradient-to-r from-transparent via-emerald-400 to-cyan-400"></div>
 
-                            {/* Header */}
-                            <div className="p-5 md:p-6 border-b border-white/10 flex flex-wrap items-center justify-between gap-4 bg-white/[0.02]">
-                                <div className="flex items-center gap-3">
-                                    <div className="w-10 h-10 rounded-2xl bg-gradient-to-br from-emerald-500/20 to-cyan-500/20 border border-emerald-500/30 flex items-center justify-center text-emerald-400 shadow-[0_0_20px_rgba(16,185,129,0.25)]">
-                                        <BarChart2 size={20} />
+                            {/* Header (fixed at top of modal) */}
+                            <div className="p-3.5 sm:p-5 border-b border-white/10 flex items-center justify-between gap-3 bg-white/[0.02] shrink-0">
+                                <div className="flex items-center gap-2.5 sm:gap-3 min-w-0">
+                                    <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl sm:rounded-2xl bg-gradient-to-br from-emerald-500/20 to-cyan-500/20 border border-emerald-500/30 flex items-center justify-center text-emerald-400 shadow-[0_0_20px_rgba(16,185,129,0.25)] shrink-0">
+                                        <BarChart2 size={18} className="sm:w-5 sm:h-5" />
                                     </div>
-                                    <div>
-                                        <h3 className="text-lg font-black text-white tracking-wide flex items-center gap-2">
-                                            Account Traffic & Analytics
-                                            <span className="px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 text-[10px] font-mono uppercase tracking-widest">Live DB</span>
-                                        </h3>
-                                        <p className="text-xs text-gray-400 font-mono mt-0.5">Real-time website opens, authentication counts, and activity logs</p>
+                                    <div className="min-w-0">
+                                        <div className="flex items-center gap-2 flex-wrap">
+                                            <h3 className="text-sm sm:text-base font-black text-white tracking-wide truncate">
+                                                Traffic & Analytics
+                                            </h3>
+                                            <span className="px-1.5 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 text-[9px] font-mono uppercase tracking-wider">Live DB</span>
+                                        </div>
+                                        <p className="text-[10px] sm:text-xs text-gray-400 font-mono truncate hidden xs:block">Individual student website opens & activity</p>
                                     </div>
                                 </div>
 
-                                <div className="flex items-center gap-2">
+                                <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
                                     <button
                                         onClick={fetchTrafficAnalytics}
                                         disabled={isTrafficLoading}
                                         title="Refresh Data"
                                         className="p-2 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-gray-300 hover:text-white transition-all disabled:opacity-50"
                                     >
-                                        <RefreshCw size={15} className={isTrafficLoading ? "animate-spin text-cyan-400" : ""} />
+                                        <RefreshCw size={14} className={isTrafficLoading ? "animate-spin text-cyan-400" : ""} />
                                     </button>
                                     <button
                                         onClick={exportTrafficCsv}
                                         title="Download CSV Report"
-                                        className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-gray-300 hover:text-white text-xs font-mono transition-all"
+                                        className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 sm:py-2 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-gray-300 hover:text-white text-[11px] sm:text-xs font-mono transition-all"
                                     >
-                                        <Download size={14} />
-                                        <span className="hidden sm:inline">Export CSV</span>
+                                        <Download size={13} />
+                                        <span className="hidden sm:inline">CSV</span>
                                     </button>
                                     <button
                                         onClick={() => setShowTrafficModal(false)}
-                                        className="p-2 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-gray-400 hover:text-white transition-all"
+                                        className="p-1.5 sm:p-2 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-gray-400 hover:text-white transition-all"
                                     >
-                                        <X size={18} />
+                                        <X size={16} />
                                     </button>
                                 </div>
                             </div>
 
-                            {/* Modal Body */}
-                            <div className="flex-1 overflow-y-auto p-5 md:p-6 custom-scrollbar space-y-6">
-                                {/* 4 Summary Cards */}
-                                <div className="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4">
-                                    <div className="p-4 rounded-2xl bg-white/[0.03] border border-white/10 relative overflow-hidden group hover:border-cyan-500/30 transition-all">
-                                        <div className="flex items-center justify-between mb-2">
-                                            <span className="text-[11px] font-mono uppercase text-gray-400">Total Opens</span>
-                                            <div className="p-1.5 rounded-lg bg-cyan-500/10 text-cyan-400"><Eye size={14} /></div>
+                            {/* Top Stats & Filters Section (Fixed, non-scrolling) */}
+                            <div className="p-3 sm:p-5 border-b border-white/10 bg-white/[0.01] shrink-0 space-y-3">
+                                {/* 4 Summary Cards + Device Analytics */}
+                                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-3">
+                                    <div className="p-2.5 sm:p-3 rounded-xl sm:rounded-2xl bg-white/[0.03] border border-white/10 flex flex-col justify-between">
+                                        <div className="flex items-center justify-between">
+                                            <span className="text-[10px] font-mono uppercase text-gray-400">Total Opens</span>
+                                            <Eye size={12} className="text-cyan-400" />
                                         </div>
-                                        <p className="text-2xl md:text-3xl font-black text-white font-mono drop-shadow-[0_0_15px_rgba(6,182,212,0.4)]">
+                                        <p className="text-xl sm:text-2xl font-black text-white font-mono drop-shadow-[0_0_12px_rgba(6,182,212,0.4)] mt-1">
                                             {trafficData?.summary?.totalTraffic ?? 0}
                                         </p>
-                                        <p className="text-[10px] text-cyan-400/80 font-mono mt-1">Website visits recorded</p>
                                     </div>
 
-                                    <div className="p-4 rounded-2xl bg-white/[0.03] border border-white/10 relative overflow-hidden group hover:border-fuchsia-500/30 transition-all">
-                                        <div className="flex items-center justify-between mb-2">
-                                            <span className="text-[11px] font-mono uppercase text-gray-400">Total Logins</span>
-                                            <div className="p-1.5 rounded-lg bg-fuchsia-500/10 text-fuchsia-400"><Unlock size={14} /></div>
+                                    <div className="p-2.5 sm:p-3 rounded-xl sm:rounded-2xl bg-white/[0.03] border border-white/10 flex flex-col justify-between">
+                                        <div className="flex items-center justify-between">
+                                            <span className="text-[10px] font-mono uppercase text-gray-400">Total Logins</span>
+                                            <Unlock size={12} className="text-fuchsia-400" />
                                         </div>
-                                        <p className="text-2xl md:text-3xl font-black text-white font-mono drop-shadow-[0_0_15px_rgba(217,70,239,0.4)]">
+                                        <p className="text-xl sm:text-2xl font-black text-white font-mono drop-shadow-[0_0_12px_rgba(217,70,239,0.4)] mt-1">
                                             {trafficData?.summary?.totalLogins ?? 0}
                                         </p>
-                                        <p className="text-[10px] text-fuchsia-400/80 font-mono mt-1">Successful authentications</p>
                                     </div>
 
-                                    <div className="p-4 rounded-2xl bg-white/[0.03] border border-white/10 relative overflow-hidden group hover:border-emerald-500/30 transition-all">
-                                        <div className="flex items-center justify-between mb-2">
-                                            <span className="text-[11px] font-mono uppercase text-gray-400">Accounts</span>
-                                            <div className="p-1.5 rounded-lg bg-emerald-500/10 text-emerald-400"><Users size={14} /></div>
+                                    <div className="p-2.5 sm:p-3 rounded-xl sm:rounded-2xl bg-white/[0.03] border border-white/10 flex flex-col justify-between">
+                                        <div className="flex items-center justify-between">
+                                            <span className="text-[10px] font-mono uppercase text-gray-400">Device Traffic</span>
+                                            <span className="text-[11px]">📱 / 💻</span>
                                         </div>
-                                        <p className="text-2xl md:text-3xl font-black text-white font-mono">
-                                            {trafficData?.summary?.registeredCount ?? 0}
-                                            <span className="text-sm text-gray-500 font-normal"> / {trafficData?.summary?.totalStudents ?? 0}</span>
+                                        <div className="mt-1 flex items-baseline gap-2">
+                                            <span className="text-xs sm:text-sm font-bold text-cyan-300 font-mono">
+                                                📱 {trafficData?.summary?.deviceBreakdown?.mobilePercent ?? 0}%
+                                            </span>
+                                            <span className="text-xs sm:text-sm font-bold text-gray-300 font-mono">
+                                                💻 {trafficData?.summary?.deviceBreakdown?.desktopPercent ?? 0}%
+                                            </span>
+                                        </div>
+                                        <p className="text-[9px] text-gray-400 font-mono truncate">
+                                            Top OS: {trafficData?.summary?.deviceBreakdown?.topOs || 'N/A'}{trafficData?.summary?.deviceBreakdown?.totalSessions ? ` (${trafficData.summary.deviceBreakdown.totalSessions} visits)` : ''}
                                         </p>
-                                        <p className="text-[10px] text-emerald-400/80 font-mono mt-1">Registered / Total Roster</p>
                                     </div>
 
-                                    <div className="p-4 rounded-2xl bg-white/[0.03] border border-white/10 relative overflow-hidden group hover:border-amber-500/30 transition-all">
-                                        <div className="flex items-center justify-between mb-2">
-                                            <span className="text-[11px] font-mono uppercase text-gray-400">Top Active</span>
-                                            <div className="p-1.5 rounded-lg bg-amber-500/10 text-amber-400"><Activity size={14} /></div>
+                                    <div className="p-2.5 sm:p-3 rounded-xl sm:rounded-2xl bg-white/[0.03] border border-white/10 flex flex-col justify-between">
+                                        <div className="flex items-center justify-between">
+                                            <span className="text-[10px] font-mono uppercase text-gray-400">Top Active</span>
+                                            <Activity size={12} className="text-amber-400" />
                                         </div>
-                                        <p className="text-sm font-bold text-white truncate">
+                                        <p className="text-xs sm:text-sm font-bold text-white truncate mt-1">
                                             {trafficData?.summary?.mostActive?.name || 'N/A'}
                                         </p>
-                                        <p className="text-[10px] text-amber-400/80 font-mono mt-1">
+                                        <p className="text-[9px] text-amber-400/80 font-mono">
                                             {trafficData?.summary?.mostActive ? `${trafficData.summary.mostActive.traffic_count || 0} opens` : 'No data'}
                                         </p>
                                     </div>
                                 </div>
 
-                                {/* Controls: Search & Sort */}
-                                <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 bg-white/[0.02] p-3 rounded-2xl border border-white/10">
+                                {/* Controls: Search & Sort Pills */}
+                                <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2">
                                     <div className="relative flex-1">
-                                        <Search size={14} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-500" />
+                                        <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500" />
                                         <input
                                             value={trafficSearch}
                                             onChange={(e) => setTrafficSearch(e.target.value)}
-                                            placeholder="Search by ID, Name, or Email..."
-                                            className="w-full bg-black/40 border border-white/10 focus:border-white/20 rounded-xl pl-9 pr-3 py-2 text-xs text-gray-200 outline-none font-mono placeholder-gray-600 transition-colors"
+                                            placeholder="Search student ID, name, or email..."
+                                            className="w-full bg-black/40 border border-white/10 focus:border-white/20 rounded-xl pl-8 pr-7 py-1.5 sm:py-2 text-xs text-gray-200 outline-none font-mono placeholder-gray-600 transition-colors"
                                         />
                                         {trafficSearch && (
-                                            <button onClick={() => setTrafficSearch("")} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-white">
+                                            <button onClick={() => setTrafficSearch("")} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-500 hover:text-white">
                                                 <X size={12} />
                                             </button>
                                         )}
                                     </div>
 
-                                    <div className="flex items-center gap-1 overflow-x-auto">
-                                        <span className="text-[10px] font-mono text-gray-500 uppercase mr-1 hidden md:inline">Sort:</span>
+                                    <div className="flex items-center gap-1 overflow-x-auto pb-1 sm:pb-0 custom-scrollbar">
+                                        <span className="text-[10px] font-mono text-gray-500 uppercase mr-1 hidden sm:inline shrink-0">Sort:</span>
                                         {[
                                             { id: 'traffic', label: 'Opens' },
                                             { id: 'logins', label: 'Logins' },
@@ -1457,106 +1672,72 @@ export default function Home() {
                                             <button
                                                 key={tab.id}
                                                 onClick={() => setTrafficSort(tab.id as any)}
-                                                className={`px-3 py-1.5 rounded-lg text-xs font-mono transition-all ${trafficSort === tab.id ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 font-bold' : 'text-gray-400 hover:text-white hover:bg-white/5 border border-transparent'}`}
+                                                className={`px-2.5 py-1 rounded-lg text-[11px] font-mono transition-all shrink-0 ${trafficSort === tab.id ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 font-bold' : 'text-gray-400 hover:text-white hover:bg-white/5 border border-transparent'}`}
                                             >
                                                 {tab.label}
                                             </button>
                                         ))}
                                     </div>
                                 </div>
+                            </div>
 
-                                {/* Students Traffic Table */}
-                                <div className="border border-white/10 rounded-2xl overflow-hidden bg-white/[0.01]">
-                                    <div className="overflow-x-auto">
-                                        <table className="w-full text-left border-collapse text-xs">
-                                            <thead>
-                                                <tr className="border-b border-white/10 bg-white/[0.03] text-gray-400 font-mono uppercase text-[10px] tracking-wider">
-                                                    <th className="p-3.5 pl-4">Student ID</th>
-                                                    <th className="p-3.5">Name</th>
-                                                    <th className="p-3.5">Email / Status</th>
-                                                    <th className="p-3.5 text-center">Opens (Traffic)</th>
-                                                    <th className="p-3.5 text-center">Logins</th>
-                                                    <th className="p-3.5 pr-4 text-right">Last Active</th>
-                                                </tr>
-                                            </thead>
-                                            <tbody className="divide-y divide-white/5 font-mono">
-                                                {(() => {
-                                                    const rawList = trafficData?.students || [];
-                                                    const query = trafficSearch.trim().toLowerCase();
-                                                    const filtered = rawList.filter(s => 
-                                                        !query || 
-                                                        s.id.toLowerCase().includes(query) || 
-                                                        (s.name && s.name.toLowerCase().includes(query)) ||
-                                                        (s.email && s.email.toLowerCase().includes(query))
-                                                    );
+                            {/* Scrollable Students Container (Fluid, touch-optimized, with sticky header) */}
+                            <div className="flex-1 min-h-0 overflow-y-auto custom-scrollbar smooth-scroll p-2 sm:p-5">
+                                {(() => {
+                                    const rawList = trafficData?.students || [];
+                                    const query = trafficSearch.trim().toLowerCase();
+                                    const filtered = rawList.filter(s => 
+                                        !query || 
+                                        s.id.toLowerCase().includes(query) || 
+                                        (s.name && s.name.toLowerCase().includes(query)) ||
+                                        (s.email && s.email.toLowerCase().includes(query))
+                                    );
 
-                                                    const sorted = [...filtered].sort((a, b) => {
-                                                        if (trafficSort === 'traffic') return (b.traffic_count || 0) - (a.traffic_count || 0);
-                                                        if (trafficSort === 'logins') return (b.login_count || 0) - (a.login_count || 0);
-                                                        if (trafficSort === 'recent') {
-                                                            const ta = a.last_visited_at ? new Date(a.last_visited_at).getTime() : 0;
-                                                            const tb = b.last_visited_at ? new Date(b.last_visited_at).getTime() : 0;
-                                                            return tb - ta;
-                                                        }
-                                                        if (trafficSort === 'id') return a.id.localeCompare(b.id);
-                                                        return 0;
-                                                    });
+                                    const sorted = [...filtered].sort((a, b) => {
+                                        if (trafficSort === 'traffic') return (b.traffic_count || 0) - (a.traffic_count || 0);
+                                        if (trafficSort === 'logins') return (b.login_count || 0) - (a.login_count || 0);
+                                        if (trafficSort === 'recent') {
+                                            const ta = a.last_visited_at ? new Date(a.last_visited_at).getTime() : 0;
+                                            const tb = b.last_visited_at ? new Date(b.last_visited_at).getTime() : 0;
+                                            return tb - ta;
+                                        }
+                                        if (trafficSort === 'id') return a.id.localeCompare(b.id);
+                                        return 0;
+                                    });
 
-                                                    if (isTrafficLoading && sorted.length === 0) {
-                                                        return (
-                                                            <tr>
-                                                                <td colSpan={6} className="p-8 text-center text-gray-400 font-mono">
-                                                                    <div className="flex items-center justify-center gap-2">
-                                                                        <Loader2 size={16} className="animate-spin text-cyan-400" />
-                                                                        <span>Querying Supabase database...</span>
-                                                                    </div>
-                                                                </td>
-                                                            </tr>
-                                                        );
-                                                    }
+                                    if (isTrafficLoading && sorted.length === 0) {
+                                        return (
+                                            <div className="py-16 text-center text-gray-400 font-mono flex items-center justify-center gap-2">
+                                                <Loader2 size={16} className="animate-spin text-cyan-400" />
+                                                <span className="text-xs">Connecting to Supabase...</span>
+                                            </div>
+                                        );
+                                    }
 
-                                                    if (sorted.length === 0) {
-                                                        return (
-                                                            <tr>
-                                                                <td colSpan={6} className="p-8 text-center text-gray-500 font-mono">
-                                                                    No accounts match the search criteria.
-                                                                </td>
-                                                            </tr>
-                                                        );
-                                                    }
+                                    if (sorted.length === 0) {
+                                        return (
+                                            <div className="py-16 text-center text-gray-500 font-mono text-xs">
+                                                No accounts match "{trafficSearch}"
+                                            </div>
+                                        );
+                                    }
 
-                                                    return sorted.map((student) => (
-                                                        <tr key={student.id} className="hover:bg-white/[0.03] transition-colors group">
-                                                            <td className="p-3.5 pl-4">
-                                                                <span className="font-bold text-cyan-300 bg-cyan-500/10 px-2 py-1 rounded-md border border-cyan-500/20 tracking-wider">
-                                                                    {student.id}
-                                                                </span>
-                                                            </td>
-                                                            <td className="p-3.5 font-sans font-medium text-white">
-                                                                {student.name}
-                                                            </td>
-                                                            <td className="p-3.5">
-                                                                {student.email ? (
-                                                                    <span className="text-gray-300 text-[11px] truncate max-w-[200px] block" title={student.email}>
-                                                                        {student.email}
-                                                                    </span>
-                                                                ) : (
-                                                                    <span className="text-[10px] text-gray-600 uppercase italic">Unregistered</span>
-                                                                )}
-                                                            </td>
-                                                            <td className="p-3.5 text-center">
-                                                                <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-bold ${student.traffic_count > 0 ? 'bg-cyan-500/15 text-cyan-300 border border-cyan-500/30 shadow-[0_0_10px_rgba(6,182,212,0.2)]' : 'bg-white/5 text-gray-500 border border-white/5'}`}>
-                                                                    {student.traffic_count || 0}
-                                                                </span>
-                                                            </td>
-                                                            <td className="p-3.5 text-center">
-                                                                <span className="text-gray-300">
-                                                                    {student.login_count || 0}
-                                                                </span>
-                                                            </td>
-                                                            <td className="p-3.5 pr-4 text-right text-gray-400 text-[11px]">
+                                    return (
+                                        <>
+                                            {/* 📱 MOBILE VIEW: Smooth touch-friendly cards */}
+                                            <div className="sm:hidden space-y-2">
+                                                {sorted.map(student => (
+                                                    <div 
+                                                        key={student.id}
+                                                        className="p-3 rounded-xl bg-white/[0.03] border border-white/10 hover:border-white/20 transition-all flex flex-col gap-2 shadow-sm"
+                                                    >
+                                                        <div className="flex items-center justify-between gap-2">
+                                                            <span className="font-mono text-xs font-bold text-cyan-300 bg-cyan-500/10 px-2 py-0.5 rounded border border-cyan-500/20 tracking-wider">
+                                                                {student.id}
+                                                            </span>
+                                                            <span className="text-[10px] font-mono text-gray-400">
                                                                 {student.last_visited_at ? (
-                                                                    new Date(student.last_visited_at).toLocaleString(undefined, {
+                                                                    new Date(student.last_visited_at).toLocaleDateString(undefined, {
                                                                         month: 'short',
                                                                         day: 'numeric',
                                                                         hour: '2-digit',
@@ -1565,14 +1746,141 @@ export default function Home() {
                                                                 ) : (
                                                                     <span className="text-gray-600 italic">Never</span>
                                                                 )}
-                                                            </td>
+                                                            </span>
+                                                        </div>
+
+                                                        <div className="flex items-center justify-between gap-2">
+                                                            <p className="text-xs font-bold text-white truncate">{student.name}</p>
+                                                            {student.email ? (
+                                                                <span className="text-[10px] font-mono text-gray-400 truncate max-w-[140px]" title={student.email}>
+                                                                    {student.email}
+                                                                </span>
+                                                            ) : (
+                                                                <span className="text-[9px] font-mono text-gray-600 uppercase italic">Unregistered</span>
+                                                            )}
+                                                        </div>
+
+                                                        <div className="flex items-center justify-between pt-1.5 border-t border-white/5 flex-wrap gap-1.5">
+                                                            <div className="flex items-center gap-1.5">
+                                                                <span className={`text-[11px] font-mono font-bold px-2 py-0.5 rounded-full ${student.traffic_count > 0 ? 'bg-cyan-500/15 text-cyan-300 border border-cyan-500/30 shadow-[0_0_8px_rgba(6,182,212,0.2)]' : 'bg-white/5 text-gray-500 border border-white/5'}`}>
+                                                                    {student.traffic_count || 0} {student.traffic_count === 1 ? 'open' : 'opens'}
+                                                                </span>
+                                                                <span className="text-[11px] font-mono text-gray-300 bg-white/5 px-2 py-0.5 rounded-full border border-white/5">
+                                                                    {student.login_count || 0} logins
+                                                                </span>
+                                                            </div>
+                                                            {student.devices && student.devices.length > 0 ? (
+                                                                <div className="flex flex-wrap gap-1">
+                                                                    {student.devices.map((d: any, idx: number) => (
+                                                                        <span key={idx} className="text-[10px] font-mono text-cyan-300/90 bg-cyan-500/10 px-2 py-0.5 rounded-md border border-cyan-500/20 flex items-center gap-1">
+                                                                            <span>{d.icon}</span>
+                                                                            <span>{d.os} ({d.browser}){d.count > 1 ? ` ×${d.count}` : ''}</span>
+                                                                        </span>
+                                                                    ))}
+                                                                </div>
+                                                            ) : student.device && student.device.type !== 'Unknown' ? (
+                                                                <span className="text-[10px] font-mono text-cyan-300/90 bg-cyan-500/10 px-2 py-0.5 rounded-md border border-cyan-500/20 flex items-center gap-1">
+                                                                    <span>{student.device.icon}</span>
+                                                                    <span>{student.device.os} ({student.device.browser})</span>
+                                                                </span>
+                                                            ) : null}
+                                                        </div>
+                                                    </div>
+                                                ))}
+                                            </div>
+
+                                            {/* 💻 DESKTOP & TABLET VIEW: Sleek Table with Sticky Header & Device Column */}
+                                            <div className="hidden sm:block border border-white/10 rounded-2xl overflow-hidden bg-white/[0.01]">
+                                                <table className="w-full text-left border-collapse text-xs">
+                                                    <thead className="sticky top-0 z-10 bg-[#0c0c12] border-b border-white/10 shadow-sm backdrop-blur-md">
+                                                        <tr className="text-gray-400 font-mono uppercase text-[10px] tracking-wider">
+                                                            <th className="p-3.5 pl-4">Student ID</th>
+                                                            <th className="p-3.5">Name</th>
+                                                            <th className="p-3.5">Email / Status</th>
+                                                            <th className="p-3.5">Device & Browser</th>
+                                                            <th className="p-3.5 text-center">Opens (Traffic)</th>
+                                                            <th className="p-3.5 text-center">Logins</th>
+                                                            <th className="p-3.5 pr-4 text-right">Last Active</th>
                                                         </tr>
-                                                    ));
-                                                })()}
-                                            </tbody>
-                                        </table>
-                                    </div>
-                                </div>
+                                                    </thead>
+                                                    <tbody className="divide-y divide-white/5 font-mono">
+                                                        {sorted.map((student) => (
+                                                            <tr key={student.id} className="hover:bg-white/[0.03] transition-colors group">
+                                                                <td className="p-3.5 pl-4">
+                                                                    <span className="font-bold text-cyan-300 bg-cyan-500/10 px-2 py-1 rounded-md border border-cyan-500/20 tracking-wider">
+                                                                        {student.id}
+                                                                    </span>
+                                                                </td>
+                                                                <td className="p-3.5 font-sans font-medium text-white">
+                                                                    {student.name}
+                                                                </td>
+                                                                <td className="p-3.5">
+                                                                    {student.email ? (
+                                                                        <span className="text-gray-300 text-[11px] truncate max-w-[180px] block" title={student.email}>
+                                                                            {student.email}
+                                                                        </span>
+                                                                    ) : (
+                                                                        <span className="text-[10px] text-gray-600 uppercase italic">Unregistered</span>
+                                                                    )}
+                                                                </td>
+                                                                <td className="p-3.5">
+                                                                    {student.devices && student.devices.length > 0 ? (
+                                                                        <div className="flex flex-wrap items-center gap-1.5">
+                                                                            {student.devices.map((d: any, idx: number) => (
+                                                                                <div key={idx} className="flex items-center gap-1.5 bg-white/[0.04] border border-white/10 px-2 py-1 rounded-lg">
+                                                                                    <span className="text-sm">{d.icon}</span>
+                                                                                    <div className="flex flex-col">
+                                                                                        <span className="text-white text-[11px] font-mono font-medium leading-tight flex items-center gap-1">
+                                                                                            {d.os}
+                                                                                            {d.count > 1 && <span className="text-[9px] text-cyan-300 font-bold font-mono">({d.count}x)</span>}
+                                                                                        </span>
+                                                                                        <span className="text-[9px] text-gray-400 font-mono leading-tight">{d.browser}</span>
+                                                                                    </div>
+                                                                                </div>
+                                                                            ))}
+                                                                        </div>
+                                                                    ) : student.device && student.device.type !== 'Unknown' ? (
+                                                                        <div className="flex items-center gap-2">
+                                                                            <span className="text-base">{student.device.icon}</span>
+                                                                            <div className="flex flex-col">
+                                                                                <span className="text-white text-xs font-mono font-medium leading-tight">{student.device.os}</span>
+                                                                                <span className="text-[10px] text-gray-400 font-mono leading-tight">{student.device.browser} • {student.device.type}</span>
+                                                                            </div>
+                                                                        </div>
+                                                                    ) : (
+                                                                        <span className="text-[10px] font-mono text-gray-600 italic">No visit yet</span>
+                                                                    )}
+                                                                </td>
+                                                                <td className="p-3.5 text-center">
+                                                                    <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-bold ${student.traffic_count > 0 ? 'bg-cyan-500/15 text-cyan-300 border border-cyan-500/30 shadow-[0_0_10px_rgba(6,182,212,0.2)]' : 'bg-white/5 text-gray-500 border border-white/5'}`}>
+                                                                        {student.traffic_count || 0}
+                                                                    </span>
+                                                                </td>
+                                                                <td className="p-3.5 text-center">
+                                                                    <span className="text-gray-300">
+                                                                        {student.login_count || 0}
+                                                                    </span>
+                                                                </td>
+                                                                <td className="p-3.5 pr-4 text-right text-gray-400 text-[11px]">
+                                                                    {student.last_visited_at ? (
+                                                                        new Date(student.last_visited_at).toLocaleString(undefined, {
+                                                                            month: 'short',
+                                                                            day: 'numeric',
+                                                                            hour: '2-digit',
+                                                                            minute: '2-digit'
+                                                                        })
+                                                                    ) : (
+                                                                        <span className="text-gray-600 italic">Never</span>
+                                                                    )}
+                                                                </td>
+                                                            </tr>
+                                                        ))}
+                                                    </tbody>
+                                                </table>
+                                            </div>
+                                        </>
+                                    );
+                                })()}
                             </div>
                         </motion.div>
                     </motion.div>

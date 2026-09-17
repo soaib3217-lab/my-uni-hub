@@ -61,15 +61,29 @@ export async function POST(request: Request) {
         }
 
         const newTrafficCount = (student.traffic_count || 0) + 1;
+        const userAgent = request.headers.get('user-agent') || 'Unknown';
 
-        // 2. Update student traffic count and last visited timestamp
-        const { error: updateError } = await supabaseServer
+        // 2. Update student traffic count, last visited timestamp, and device user agent
+        let { error: updateError } = await supabaseServer
             .from('students')
             .update({
                 traffic_count: newTrafficCount,
-                last_visited_at: now
+                last_visited_at: now,
+                last_user_agent: userAgent
             })
             .eq('id', studentId);
+
+        // Fallback in case last_user_agent column has not been added to Supabase yet
+        if (updateError) {
+            const fallback = await supabaseServer
+                .from('students')
+                .update({
+                    traffic_count: newTrafficCount,
+                    last_visited_at: now
+                })
+                .eq('id', studentId);
+            updateError = fallback.error;
+        }
 
         if (updateError) {
             console.error('Failed to update student traffic count:', updateError);
