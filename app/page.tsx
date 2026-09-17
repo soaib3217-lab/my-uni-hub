@@ -8,7 +8,7 @@ import {
     ChevronRight, ChevronDown, Folder, Sparkles, MessageSquare,
     Minimize2, Loader2, GraduationCap, Menu, Search, FolderPlus,
     File, User, Lightbulb, Grid, Home as HomeIcon, MoreVertical, ExternalLink,
-    Download, ArrowLeft
+    Download, ArrowLeft, BarChart2, Users, Activity, Eye, Clock, RefreshCw
 } from 'lucide-react';
 
 import ReactMarkdown from 'react-markdown';
@@ -186,11 +186,18 @@ export default function Home() {
     const chatScrollRef = useRef<HTMLDivElement>(null);
 
     // Auth & Admin States
-    const [currentUser, setCurrentUser] = useState<{ id: string, name: string, role?: string } | null>(null);
+    const [currentUser, setCurrentUser] = useState<{ id: string, name: string, role?: string, traffic_count?: number, login_count?: number } | null>(null);
     const [showAdminModal, setShowAdminModal] = useState(false);
     const [authMode, setAuthMode] = useState<'login' | 'register' | 'forgot_password' | 'reset_password'>('login');
     const [authForm, setAuthForm] = useState({ id: "", email: "", password: "", otp: "", newPassword: "" });
     const [isAuthLoading, setIsAuthLoading] = useState(false);
+
+    // Traffic & Analytics States
+    const [showTrafficModal, setShowTrafficModal] = useState(false);
+    const [trafficData, setTrafficData] = useState<{ summary: any, students: any[] } | null>(null);
+    const [isTrafficLoading, setIsTrafficLoading] = useState(false);
+    const [trafficSearch, setTrafficSearch] = useState("");
+    const [trafficSort, setTrafficSort] = useState<'traffic' | 'logins' | 'recent' | 'id' | 'name'>('traffic');
 
     // Cover Generator State
     const [showCoverGenerator, setShowCoverGenerator] = useState(false);
@@ -219,6 +226,70 @@ export default function Home() {
     const [isUploading, setIsUploading] = useState(false);
     const [uploadProgress, setUploadProgress] = useState(0);
 
+    // 🚦 Traffic Session Tracker: Tracks website open per browser session
+    async function recordTrafficSession(user: any) {
+        if (!user || user.role === 'admin' || !user.id) return;
+        const sessionKey = `traffic_tracked_${user.id}`;
+        if (typeof window !== 'undefined' && sessionStorage.getItem(sessionKey)) {
+            return;
+        }
+
+        try {
+            const res = await fetch('/api/traffic', { method: 'POST' });
+            const data = await res.json();
+            if (data.success) {
+                if (typeof window !== 'undefined') {
+                    sessionStorage.setItem(sessionKey, 'true');
+                }
+                if (data.traffic_count !== undefined) {
+                    setCurrentUser(prev => prev ? { ...prev, traffic_count: data.traffic_count } : null);
+                }
+            }
+        } catch (err) {
+            console.error("Traffic logging error:", err);
+        }
+    }
+
+    async function fetchTrafficAnalytics() {
+        setIsTrafficLoading(true);
+        try {
+            const res = await fetch('/api/admin/traffic');
+            const data = await res.json();
+            if (data.success) {
+                setTrafficData({ summary: data.summary, students: data.students });
+            } else {
+                alert(data.error || "Failed to load traffic data");
+            }
+        } catch (err) {
+            console.error("Traffic fetch error", err);
+            alert("Failed to load traffic analytics.");
+        } finally {
+            setIsTrafficLoading(false);
+        }
+    }
+
+    function exportTrafficCsv() {
+        if (!trafficData?.students?.length) return alert("No student data to export.");
+        const headers = ["Student ID", "Name", "Email", "Status", "Website Opens (Traffic)", "Logins", "Last Active"];
+        const rows = trafficData.students.map(s => [
+            `"${s.id}"`,
+            `"${(s.name || '').replace(/"/g, '""')}"`,
+            `"${s.email || 'Unregistered'}"`,
+            `"${s.isRegistered ? 'Registered' : 'Pending'}"`,
+            s.traffic_count || 0,
+            s.login_count || 0,
+            `"${s.last_visited_at ? new Date(s.last_visited_at).toLocaleString() : 'Never'}"`
+        ]);
+        const csvContent = "data:text/csv;charset=utf-8," + [headers.join(","), ...rows.map(e => e.join(","))].join("\n");
+        const encodedUri = encodeURI(csvContent);
+        const link = document.createElement("a");
+        link.setAttribute("href", encodedUri);
+        link.setAttribute("download", `student_traffic_report_${new Date().toISOString().slice(0,10)}.csv`);
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+    }
+
     useEffect(() => {
         fetchData();
         fetchUser();
@@ -230,6 +301,7 @@ export default function Home() {
             const data = await res.json();
             if (data.success && data.user) {
                 setCurrentUser(data.user);
+                recordTrafficSession(data.user);
             }
         } catch (e) { console.error("Error fetching user", e); }
     }
@@ -366,6 +438,7 @@ export default function Home() {
             if (data.success) {
                 if (authMode === 'login' || authMode === 'register') {
                     setCurrentUser(data.user);
+                    recordTrafficSession(data.user);
                     setShowAdminModal(false);
                     setAuthForm({ id: "", email: "", password: "", otp: "", newPassword: "" });
                 } else if (authMode === 'forgot_password') {
@@ -652,7 +725,7 @@ export default function Home() {
                             <div className="flex-1 overflow-hidden relative z-10">
                                 <p className="text-[9px] font-mono text-cyan-300 uppercase tracking-widest flex items-center gap-1.5 opacity-80 group-hover:opacity-100 transition-opacity">
                                     <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse shadow-[0_0_5px_rgba(34,211,238,0.8)]"></span>
-                                    Active Session
+                                    {currentUser.role === 'admin' ? 'Super Admin' : 'Student'}
                                 </p>
                                 <p className="text-xs font-bold text-white truncate drop-shadow-md tracking-wide mt-0.5">{currentUser.name}</p>
                             </div>
@@ -763,6 +836,15 @@ export default function Home() {
                             >
                                 <Lock size={16} />
                             </button>
+                            {currentUser?.role === 'admin' && (
+                                <button
+                                    onClick={() => { setShowTrafficModal(true); fetchTrafficAnalytics(); }}
+                                    title="Account Traffic & Analytics"
+                                    className="p-2 rounded-lg transition text-emerald-400 hover:text-emerald-300 hover:bg-emerald-500/10 border border-emerald-500/20 bg-[#121216]"
+                                >
+                                    <BarChart2 size={16} />
+                                </button>
+                            )}
                             <button
                                 onClick={() => setShowCoverGenerator(true)}
                                 title="Cover Generator"
@@ -784,7 +866,17 @@ export default function Home() {
                 {!selectedFile && (
                     <div className="md:hidden h-14 border-b border-white/10 flex items-center px-4 justify-between bg-white/[0.03] backdrop-blur-3xl shrink-0">
                         <span className="font-black text-transparent bg-clip-text bg-gradient-to-r from-cyan-200 to-white tracking-widest uppercase">STAT.Notes</span>
-                        <button onClick={() => setIsMobileMenuOpen(true)} className="text-cyan-400"><Menu size={24} /></button>
+                        <div className="flex items-center gap-2">
+                            {currentUser?.role === 'admin' && (
+                                <button 
+                                    onClick={() => { setShowTrafficModal(true); fetchTrafficAnalytics(); }}
+                                    className="px-2.5 py-1 rounded-lg bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 text-[10px] font-bold font-mono uppercase flex items-center gap-1"
+                                >
+                                    <BarChart2 size={12} /> Traffic
+                                </button>
+                            )}
+                            <button onClick={() => setIsMobileMenuOpen(true)} className="text-cyan-400"><Menu size={24} /></button>
+                        </div>
                     </div>
                 )}
 
@@ -1220,6 +1312,266 @@ export default function Home() {
                                     ) : (
                                         <button onClick={() => setAuthMode('login')} className="text-[10px] text-gray-400 hover:text-white uppercase tracking-widest font-medium transition-colors">Back to Login</button>
                                     )}
+                                </div>
+                            </div>
+                        </motion.div>
+                    </motion.div>
+                )}
+
+                {/* 📊 ADMIN TRAFFIC & ANALYTICS MODAL */}
+                {showTrafficModal && (
+                    <motion.div 
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1 }}
+                        exit={{ opacity: 0 }}
+                        className="fixed inset-0 bg-black/70 backdrop-blur-md z-[75] flex items-center justify-center p-3 md:p-6"
+                    >
+                        <motion.div 
+                            initial={{ scale: 0.95, y: 20, opacity: 0 }}
+                            animate={{ scale: 1, y: 0, opacity: 1 }}
+                            exit={{ scale: 0.95, y: 20, opacity: 0 }}
+                            transition={{ type: "spring", damping: 25, stiffness: 300 }}
+                            className="relative w-full max-w-5xl max-h-[92vh] flex flex-col bg-[#09090d]/95 border border-white/15 rounded-3xl shadow-[0_25px_60px_rgba(0,0,0,0.8)] backdrop-blur-3xl overflow-hidden"
+                        >
+                            {/* Neon accent line at top */}
+                            <div className="absolute top-0 left-0 w-full h-[2px] bg-gradient-to-r from-transparent via-emerald-400 to-cyan-400"></div>
+
+                            {/* Header */}
+                            <div className="p-5 md:p-6 border-b border-white/10 flex flex-wrap items-center justify-between gap-4 bg-white/[0.02]">
+                                <div className="flex items-center gap-3">
+                                    <div className="w-10 h-10 rounded-2xl bg-gradient-to-br from-emerald-500/20 to-cyan-500/20 border border-emerald-500/30 flex items-center justify-center text-emerald-400 shadow-[0_0_20px_rgba(16,185,129,0.25)]">
+                                        <BarChart2 size={20} />
+                                    </div>
+                                    <div>
+                                        <h3 className="text-lg font-black text-white tracking-wide flex items-center gap-2">
+                                            Account Traffic & Analytics
+                                            <span className="px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 text-[10px] font-mono uppercase tracking-widest">Live DB</span>
+                                        </h3>
+                                        <p className="text-xs text-gray-400 font-mono mt-0.5">Real-time website opens, authentication counts, and activity logs</p>
+                                    </div>
+                                </div>
+
+                                <div className="flex items-center gap-2">
+                                    <button
+                                        onClick={fetchTrafficAnalytics}
+                                        disabled={isTrafficLoading}
+                                        title="Refresh Data"
+                                        className="p-2 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-gray-300 hover:text-white transition-all disabled:opacity-50"
+                                    >
+                                        <RefreshCw size={15} className={isTrafficLoading ? "animate-spin text-cyan-400" : ""} />
+                                    </button>
+                                    <button
+                                        onClick={exportTrafficCsv}
+                                        title="Download CSV Report"
+                                        className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-gray-300 hover:text-white text-xs font-mono transition-all"
+                                    >
+                                        <Download size={14} />
+                                        <span className="hidden sm:inline">Export CSV</span>
+                                    </button>
+                                    <button
+                                        onClick={() => setShowTrafficModal(false)}
+                                        className="p-2 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-gray-400 hover:text-white transition-all"
+                                    >
+                                        <X size={18} />
+                                    </button>
+                                </div>
+                            </div>
+
+                            {/* Modal Body */}
+                            <div className="flex-1 overflow-y-auto p-5 md:p-6 custom-scrollbar space-y-6">
+                                {/* 4 Summary Cards */}
+                                <div className="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4">
+                                    <div className="p-4 rounded-2xl bg-white/[0.03] border border-white/10 relative overflow-hidden group hover:border-cyan-500/30 transition-all">
+                                        <div className="flex items-center justify-between mb-2">
+                                            <span className="text-[11px] font-mono uppercase text-gray-400">Total Opens</span>
+                                            <div className="p-1.5 rounded-lg bg-cyan-500/10 text-cyan-400"><Eye size={14} /></div>
+                                        </div>
+                                        <p className="text-2xl md:text-3xl font-black text-white font-mono drop-shadow-[0_0_15px_rgba(6,182,212,0.4)]">
+                                            {trafficData?.summary?.totalTraffic ?? 0}
+                                        </p>
+                                        <p className="text-[10px] text-cyan-400/80 font-mono mt-1">Website visits recorded</p>
+                                    </div>
+
+                                    <div className="p-4 rounded-2xl bg-white/[0.03] border border-white/10 relative overflow-hidden group hover:border-fuchsia-500/30 transition-all">
+                                        <div className="flex items-center justify-between mb-2">
+                                            <span className="text-[11px] font-mono uppercase text-gray-400">Total Logins</span>
+                                            <div className="p-1.5 rounded-lg bg-fuchsia-500/10 text-fuchsia-400"><Unlock size={14} /></div>
+                                        </div>
+                                        <p className="text-2xl md:text-3xl font-black text-white font-mono drop-shadow-[0_0_15px_rgba(217,70,239,0.4)]">
+                                            {trafficData?.summary?.totalLogins ?? 0}
+                                        </p>
+                                        <p className="text-[10px] text-fuchsia-400/80 font-mono mt-1">Successful authentications</p>
+                                    </div>
+
+                                    <div className="p-4 rounded-2xl bg-white/[0.03] border border-white/10 relative overflow-hidden group hover:border-emerald-500/30 transition-all">
+                                        <div className="flex items-center justify-between mb-2">
+                                            <span className="text-[11px] font-mono uppercase text-gray-400">Accounts</span>
+                                            <div className="p-1.5 rounded-lg bg-emerald-500/10 text-emerald-400"><Users size={14} /></div>
+                                        </div>
+                                        <p className="text-2xl md:text-3xl font-black text-white font-mono">
+                                            {trafficData?.summary?.registeredCount ?? 0}
+                                            <span className="text-sm text-gray-500 font-normal"> / {trafficData?.summary?.totalStudents ?? 0}</span>
+                                        </p>
+                                        <p className="text-[10px] text-emerald-400/80 font-mono mt-1">Registered / Total Roster</p>
+                                    </div>
+
+                                    <div className="p-4 rounded-2xl bg-white/[0.03] border border-white/10 relative overflow-hidden group hover:border-amber-500/30 transition-all">
+                                        <div className="flex items-center justify-between mb-2">
+                                            <span className="text-[11px] font-mono uppercase text-gray-400">Top Active</span>
+                                            <div className="p-1.5 rounded-lg bg-amber-500/10 text-amber-400"><Activity size={14} /></div>
+                                        </div>
+                                        <p className="text-sm font-bold text-white truncate">
+                                            {trafficData?.summary?.mostActive?.name || 'N/A'}
+                                        </p>
+                                        <p className="text-[10px] text-amber-400/80 font-mono mt-1">
+                                            {trafficData?.summary?.mostActive ? `${trafficData.summary.mostActive.traffic_count || 0} opens` : 'No data'}
+                                        </p>
+                                    </div>
+                                </div>
+
+                                {/* Controls: Search & Sort */}
+                                <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 bg-white/[0.02] p-3 rounded-2xl border border-white/10">
+                                    <div className="relative flex-1">
+                                        <Search size={14} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-500" />
+                                        <input
+                                            value={trafficSearch}
+                                            onChange={(e) => setTrafficSearch(e.target.value)}
+                                            placeholder="Search by ID, Name, or Email..."
+                                            className="w-full bg-black/40 border border-white/10 focus:border-white/20 rounded-xl pl-9 pr-3 py-2 text-xs text-gray-200 outline-none font-mono placeholder-gray-600 transition-colors"
+                                        />
+                                        {trafficSearch && (
+                                            <button onClick={() => setTrafficSearch("")} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-white">
+                                                <X size={12} />
+                                            </button>
+                                        )}
+                                    </div>
+
+                                    <div className="flex items-center gap-1 overflow-x-auto">
+                                        <span className="text-[10px] font-mono text-gray-500 uppercase mr-1 hidden md:inline">Sort:</span>
+                                        {[
+                                            { id: 'traffic', label: 'Opens' },
+                                            { id: 'logins', label: 'Logins' },
+                                            { id: 'recent', label: 'Recent' },
+                                            { id: 'id', label: 'ID' }
+                                        ].map(tab => (
+                                            <button
+                                                key={tab.id}
+                                                onClick={() => setTrafficSort(tab.id as any)}
+                                                className={`px-3 py-1.5 rounded-lg text-xs font-mono transition-all ${trafficSort === tab.id ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 font-bold' : 'text-gray-400 hover:text-white hover:bg-white/5 border border-transparent'}`}
+                                            >
+                                                {tab.label}
+                                            </button>
+                                        ))}
+                                    </div>
+                                </div>
+
+                                {/* Students Traffic Table */}
+                                <div className="border border-white/10 rounded-2xl overflow-hidden bg-white/[0.01]">
+                                    <div className="overflow-x-auto">
+                                        <table className="w-full text-left border-collapse text-xs">
+                                            <thead>
+                                                <tr className="border-b border-white/10 bg-white/[0.03] text-gray-400 font-mono uppercase text-[10px] tracking-wider">
+                                                    <th className="p-3.5 pl-4">Student ID</th>
+                                                    <th className="p-3.5">Name</th>
+                                                    <th className="p-3.5">Email / Status</th>
+                                                    <th className="p-3.5 text-center">Opens (Traffic)</th>
+                                                    <th className="p-3.5 text-center">Logins</th>
+                                                    <th className="p-3.5 pr-4 text-right">Last Active</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody className="divide-y divide-white/5 font-mono">
+                                                {(() => {
+                                                    const rawList = trafficData?.students || [];
+                                                    const query = trafficSearch.trim().toLowerCase();
+                                                    const filtered = rawList.filter(s => 
+                                                        !query || 
+                                                        s.id.toLowerCase().includes(query) || 
+                                                        (s.name && s.name.toLowerCase().includes(query)) ||
+                                                        (s.email && s.email.toLowerCase().includes(query))
+                                                    );
+
+                                                    const sorted = [...filtered].sort((a, b) => {
+                                                        if (trafficSort === 'traffic') return (b.traffic_count || 0) - (a.traffic_count || 0);
+                                                        if (trafficSort === 'logins') return (b.login_count || 0) - (a.login_count || 0);
+                                                        if (trafficSort === 'recent') {
+                                                            const ta = a.last_visited_at ? new Date(a.last_visited_at).getTime() : 0;
+                                                            const tb = b.last_visited_at ? new Date(b.last_visited_at).getTime() : 0;
+                                                            return tb - ta;
+                                                        }
+                                                        if (trafficSort === 'id') return a.id.localeCompare(b.id);
+                                                        return 0;
+                                                    });
+
+                                                    if (isTrafficLoading && sorted.length === 0) {
+                                                        return (
+                                                            <tr>
+                                                                <td colSpan={6} className="p-8 text-center text-gray-400 font-mono">
+                                                                    <div className="flex items-center justify-center gap-2">
+                                                                        <Loader2 size={16} className="animate-spin text-cyan-400" />
+                                                                        <span>Querying Supabase database...</span>
+                                                                    </div>
+                                                                </td>
+                                                            </tr>
+                                                        );
+                                                    }
+
+                                                    if (sorted.length === 0) {
+                                                        return (
+                                                            <tr>
+                                                                <td colSpan={6} className="p-8 text-center text-gray-500 font-mono">
+                                                                    No accounts match the search criteria.
+                                                                </td>
+                                                            </tr>
+                                                        );
+                                                    }
+
+                                                    return sorted.map((student) => (
+                                                        <tr key={student.id} className="hover:bg-white/[0.03] transition-colors group">
+                                                            <td className="p-3.5 pl-4">
+                                                                <span className="font-bold text-cyan-300 bg-cyan-500/10 px-2 py-1 rounded-md border border-cyan-500/20 tracking-wider">
+                                                                    {student.id}
+                                                                </span>
+                                                            </td>
+                                                            <td className="p-3.5 font-sans font-medium text-white">
+                                                                {student.name}
+                                                            </td>
+                                                            <td className="p-3.5">
+                                                                {student.email ? (
+                                                                    <span className="text-gray-300 text-[11px] truncate max-w-[200px] block" title={student.email}>
+                                                                        {student.email}
+                                                                    </span>
+                                                                ) : (
+                                                                    <span className="text-[10px] text-gray-600 uppercase italic">Unregistered</span>
+                                                                )}
+                                                            </td>
+                                                            <td className="p-3.5 text-center">
+                                                                <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-bold ${student.traffic_count > 0 ? 'bg-cyan-500/15 text-cyan-300 border border-cyan-500/30 shadow-[0_0_10px_rgba(6,182,212,0.2)]' : 'bg-white/5 text-gray-500 border border-white/5'}`}>
+                                                                    {student.traffic_count || 0}
+                                                                </span>
+                                                            </td>
+                                                            <td className="p-3.5 text-center">
+                                                                <span className="text-gray-300">
+                                                                    {student.login_count || 0}
+                                                                </span>
+                                                            </td>
+                                                            <td className="p-3.5 pr-4 text-right text-gray-400 text-[11px]">
+                                                                {student.last_visited_at ? (
+                                                                    new Date(student.last_visited_at).toLocaleString(undefined, {
+                                                                        month: 'short',
+                                                                        day: 'numeric',
+                                                                        hour: '2-digit',
+                                                                        minute: '2-digit'
+                                                                    })
+                                                                ) : (
+                                                                    <span className="text-gray-600 italic">Never</span>
+                                                                )}
+                                                            </td>
+                                                        </tr>
+                                                    ));
+                                                })()}
+                                            </tbody>
+                                        </table>
+                                    </div>
                                 </div>
                             </div>
                         </motion.div>
