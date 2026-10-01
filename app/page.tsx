@@ -9,7 +9,7 @@ import {
     Minimize2, Loader2, GraduationCap, Menu, Search, FolderPlus,
     File, User, Lightbulb, Grid, Home as HomeIcon, MoreVertical, ExternalLink,
     Download, ArrowLeft, BarChart2, Users, Activity, Eye, Clock, RefreshCw,
-    Fingerprint, ShieldCheck, ShieldAlert, KeyRound, LogIn
+    Fingerprint, ShieldCheck, ShieldAlert, KeyRound, LogIn, Github
 } from 'lucide-react';
 
 import ReactMarkdown from 'react-markdown';
@@ -25,21 +25,25 @@ const supabase = createClient(
 
 const GOOGLE_SCRIPT_URL = process.env.NEXT_PUBLIC_GOOGLE_SCRIPT_URL!;
 
-function getDriveThumbnail(url: string) {
-    if (!url) return null;
-    const match = url.match(/\/d\/([a-zA-Z0-9_-]+)/);
-    if (match && match[1]) {
-        return `https://drive.google.com/thumbnail?id=${match[1]}&sz=w800`;
-    }
-    return null;
-}
-
 function getFileIdFromUrl(url: string) {
     if (!url) return null;
     const match = url.match(/\/d\/([a-zA-Z0-9_-]+)/);
     if (match && match[1]) return match[1];
     const idMatch = url.match(/[?&]id=([a-zA-Z0-9_-]+)/);
     return idMatch ? idMatch[1] : null;
+}
+
+function getDriveThumbnail(url: string) {
+    if (!url) return null;
+    const match = url.match(/\/d\/([a-zA-Z0-9_-]+)/);
+    if (match && match[1]) {
+        return `https://drive.google.com/thumbnail?id=${match[1]}&sz=w800`;
+    }
+    const idMatch = url.match(/[?&]id=([a-zA-Z0-9_-]+)/);
+    if (idMatch && idMatch[1]) {
+        return `https://drive.google.com/thumbnail?id=${idMatch[1]}&sz=w800`;
+    }
+    return null;
 }
 
 function getDirectDownloadUrl(url: string) {
@@ -522,16 +526,27 @@ export default function Home() {
 
     async function handleCreateFolder() {
         if (!newFolderCode) return alert("Enter a Course Code");
-        const { error } = await supabase.from('folders').insert({
-            code: newFolderCode,
-            year: targetYear,
-            semester: targetSemester
-        });
-        if (error) alert("Error: " + error.message);
-        else {
-            setShowAddFolderModal(false);
-            setNewFolderCode("");
-            fetchData();
+        try {
+            const res = await fetch('/api/folders', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    code: newFolderCode,
+                    year: targetYear,
+                    semester: targetSemester
+                })
+            });
+            const data = await res.json();
+            if (!data.success) {
+                alert("Error: " + (data.error || "Failed to create folder"));
+            } else {
+                setShowAddFolderModal(false);
+                setNewFolderCode("");
+                fetchData();
+            }
+        } catch (err) {
+            console.error("Folder creation error:", err);
+            alert("Network error creating folder.");
         }
     }
 
@@ -621,18 +636,23 @@ export default function Home() {
 
             setUploadProgress(98);
 
-            const { error: dbError } = await supabase.from('courses').insert({
-                title: newFileTitle,
-                course_code: targetFolderCode,
-                category: targetCategory,
-                year: finalYear,
-                semester: finalSemester,
-                pdf_url: finalUrl,
-                uploader: currentUser.name
+            const courseRes = await fetch('/api/courses', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    title: newFileTitle,
+                    course_code: targetFolderCode,
+                    category: targetCategory,
+                    year: finalYear,
+                    semester: finalSemester,
+                    pdf_url: finalUrl
+                })
             });
 
-            if (dbError) alert("Database Error: " + dbError.message);
-            else {
+            const courseData = await courseRes.json();
+            if (!courseData.success) {
+                alert("Upload Error: " + (courseData.error || "Failed to save material"));
+            } else {
                 setShowAddFileModal(false);
                 setNewFileTitle("");
                 setUploadFile(null);
@@ -670,9 +690,20 @@ export default function Home() {
                 console.error("Drive Deletion Error:", err);
             }
         }
-        await supabase.from('courses').delete().eq('id', file.id);
-        fetchData();
-        if (selectedFile?.id === file.id) handleGoHome();
+
+        try {
+            const res = await fetch(`/api/courses?id=${file.id}`, { method: 'DELETE' });
+            const data = await res.json();
+            if (!data.success) {
+                alert("Error: " + (data.error || "Failed to delete file"));
+            } else {
+                fetchData();
+                if (selectedFile?.id === file.id) handleGoHome();
+            }
+        } catch (err) {
+            console.error("Delete error:", err);
+            alert("Failed to delete file. Check your connection.");
+        }
     }
 
     const toggleState = (setter: any, val: string) => {
@@ -1093,7 +1124,7 @@ export default function Home() {
                                 </div>
                             </div>
 
-                            <iframe src={selectedFile.pdf_url} className="flex-1 w-full bg-white/5" title="Preview" />
+                            <iframe src={selectedFile.pdf_url} className="flex-1 w-full bg-white/5 border-0" title="Preview" />
 
                             <button onClick={() => setIsAiOpen(!isAiOpen)} className="absolute bottom-6 right-6 bg-white/10 backdrop-blur-xl p-4 rounded-full text-white shadow-[0_8px_30px_rgba(0,0,0,0.3)] hover:shadow-[0_10px_40px_rgba(0,0,0,0.4)] hover:-translate-y-1 transition-all duration-300 z-10 flex items-center justify-center border border-white/20 hover:border-white/30 hover:bg-white/20 group">
                                 {isAiOpen ? <ChevronRight size={22} className="text-white drop-shadow-md" /> : <MessageSquare size={22} className="text-white drop-shadow-md" />}
@@ -1428,16 +1459,24 @@ export default function Home() {
                                 </div>
                             )}
 
-                            {/* ✨ MINIMAL FOOTER ✨ */}
+                            {/* ✨ MINIMAL FOOTER LINK ✨ */}
                             <div className="mt-auto pt-6 pb-4 w-full flex justify-center items-center">
-                                <div className="flex items-center gap-2 px-4 py-1.5 bg-white/5 backdrop-blur-xl border border-white/10 rounded-full shadow-[0_4px_15px_rgba(0,0,0,0.1)] hover:bg-white/10 transition-colors">
-                                    <span className="text-[10px] font-medium tracking-widest text-gray-400 uppercase">
+                                <a
+                                    href="https://github.com/soaib3217-lab"
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    title="View Munif's GitHub Profile"
+                                    className="group flex items-center gap-2 px-4 py-1.5 bg-white/5 hover:bg-white/10 active:scale-95 backdrop-blur-xl border border-white/10 hover:border-cyan-400/40 rounded-full shadow-[0_4px_15px_rgba(0,0,0,0.1)] hover:shadow-[0_0_20px_rgba(6,182,212,0.25)] transition-all duration-300 cursor-pointer no-underline"
+                                >
+                                    <Github size={12} className="text-gray-400 group-hover:text-cyan-400 transition-colors" />
+                                    <span className="text-[10px] font-medium tracking-widest text-gray-400 group-hover:text-gray-300 uppercase transition-colors">
                                         Developed By
                                     </span>
-                                    <span className="text-[10px] font-black tracking-widest text-white uppercase">
+                                    <span className="text-[10px] font-black tracking-widest text-white group-hover:text-cyan-300 uppercase transition-colors flex items-center gap-1">
                                         MUNIF
+                                        <ExternalLink size={10} className="text-gray-500 group-hover:text-cyan-400 opacity-0 group-hover:opacity-100 -translate-x-1 group-hover:translate-x-0 transition-all" />
                                     </span>
-                                </div>
+                                </a>
                             </div>
 
                         </div>

@@ -1,9 +1,6 @@
 import { NextResponse } from 'next/server';
-import { cookies } from 'next/headers';
-import jwt from 'jsonwebtoken';
 import { supabaseServer } from '@/lib/supabaseServer';
-
-const JWT_SECRET = process.env.JWT_SECRET || 'fallback_secret_for_dev_only';
+import { getAuthenticatedUser, getClientIp, checkRateLimit } from '@/lib/security';
 
 interface DecodedToken {
     id: string;
@@ -61,24 +58,23 @@ export function parseDeviceInfo(ua: string | null | undefined): DeviceInfo {
     return { type, os, browser, icon, label };
 }
 
-export async function GET() {
+export async function GET(request: Request) {
     try {
-        const cookieStore = await cookies();
-        const token = cookieStore.get('auth_token')?.value;
-
-        if (!token) {
-            return NextResponse.json({ success: false, error: 'Unauthorized. Admin access required.' }, { status: 401 });
+        const clientIp = getClientIp(request);
+        const rateCheck = checkRateLimit(`admin_traffic_${clientIp}`, 30, 60);
+        if (!rateCheck.success) {
+            return NextResponse.json(
+                { success: false, error: 'Too many requests. Please wait a moment.' },
+                { status: 429 }
+            );
         }
 
-        let decoded: DecodedToken;
-        try {
-            decoded = jwt.verify(token, JWT_SECRET) as DecodedToken;
-        } catch {
-            return NextResponse.json({ success: false, error: 'Invalid or expired session.' }, { status: 401 });
-        }
-
-        if (decoded.role !== 'admin' && decoded.id !== 'admin_user') {
-            return NextResponse.json({ success: false, error: 'Forbidden. Admin privileges required.' }, { status: 403 });
+        const user = await getAuthenticatedUser();
+        if (!user || (user.role !== 'admin' && user.id !== 'admin_user')) {
+            return NextResponse.json(
+                { success: false, error: 'Forbidden. Admin privileges required.' },
+                { status: 403 }
+            );
         }
 
         // 1. Fetch all students

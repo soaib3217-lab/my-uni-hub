@@ -1,41 +1,20 @@
 import { NextResponse } from 'next/server';
-import { cookies } from 'next/headers';
-import jwt from 'jsonwebtoken';
 import { supabaseServer } from '@/lib/supabaseServer';
-
-const JWT_SECRET = process.env.JWT_SECRET || 'fallback_secret_for_dev_only';
-
-interface DecodedToken {
-    id: string;
-    name?: string;
-    role?: string;
-}
+import { getAuthenticatedUser, getClientIp, checkRateLimit, sanitizeString } from '@/lib/security';
 
 // POST: Record a website visit / traffic open for the current logged-in user
 export async function POST(request: Request) {
     try {
-        const cookieStore = await cookies();
-        const token = cookieStore.get('auth_token')?.value;
-
-        if (!token) {
+        const user = await getAuthenticatedUser();
+        if (!user) {
             return NextResponse.json(
-                { success: false, error: 'No active session found.' },
+                { success: false, error: 'Unauthorized. No active session found.' },
                 { status: 401 }
             );
         }
 
-        let decoded: DecodedToken;
-        try {
-            decoded = jwt.verify(token, JWT_SECRET) as DecodedToken;
-        } catch {
-            return NextResponse.json(
-                { success: false, error: 'Invalid or expired session.' },
-                { status: 401 }
-            );
-        }
-
-        // Admin accounts are not university students, so skip incrementing student traffic
-        if (decoded.role === 'admin' || decoded.id === 'admin_user') {
+        // Admin sessions do not count towards student traffic
+        if (user.role === 'admin' || user.id === 'admin_user') {
             return NextResponse.json({
                 success: true,
                 message: 'Admin session verified (traffic count not applicable).',
@@ -43,7 +22,18 @@ export async function POST(request: Request) {
             });
         }
 
-        const studentId = decoded.id;
+        const clientIp = getClientIp(request);
+
+        // 🛡️ Rate limit: Max 1 traffic log every 30 seconds per student to prevent counter inflation
+        const rateCheck = checkRateLimit(`traffic_${user.id}_${clientIp}`, 1, 30);
+        if (!rateCheck.success) {
+            return NextResponse.json({
+                success: true,
+                message: 'Visit already recorded for current session window.'
+            });
+        }
+
+        const studentId = user.id;
         const now = new Date().toISOString();
 
         // 1. Fetch current student record
@@ -61,7 +51,8 @@ export async function POST(request: Request) {
         }
 
         const newTrafficCount = (student.traffic_count || 0) + 1;
-        const userAgent = request.headers.get('user-agent') || 'Unknown';
+        const rawUserAgent = request.headers.get('user-agent') || 'Unknown';
+        const userAgent = sanitizeString(rawUserAgent, 300);
 
         // 2. Update student traffic count, last visited timestamp, and device user agent
         let { error: updateError } = await supabaseServer
@@ -93,9 +84,8 @@ export async function POST(request: Request) {
             );
         }
 
-        // 3. Insert into traffic_logs for audit history (non-blocking if table is not yet created)
+        // 3. Insert into traffic_logs for audit history
         try {
-            const userAgent = request.headers.get('user-agent') || 'Unknown';
             await supabaseServer
                 .from('traffic_logs')
                 .insert({
@@ -104,8 +94,8 @@ export async function POST(request: Request) {
                     user_agent: userAgent
                 });
         } catch (logErr) {
-            // Non-fatal if traffic_logs migration has not run yet
-            console.warn('Could not insert to traffic_logs table (safe to ignore if table pending migration):', logErr);
+            // Non-fatal if traffic_logs table has not been migrated yet
+            console.warn('Could not insert to traffic_logs table:', logErr);
         }
 
         return NextResponse.json({
@@ -126,23 +116,19 @@ export async function POST(request: Request) {
 // GET: Retrieve traffic info for the currently logged-in student
 export async function GET() {
     try {
-        const cookieStore = await cookies();
-        const token = cookieStore.get('auth_token')?.value;
-
-        if (!token) {
+        const user = await getAuthenticatedUser();
+        if (!user) {
             return NextResponse.json({ success: false, user: null }, { status: 401 });
         }
 
-        const decoded = jwt.verify(token, JWT_SECRET) as DecodedToken;
-
-        if (decoded.role === 'admin' || decoded.id === 'admin_user') {
+        if (user.role === 'admin' || user.id === 'admin_user') {
             return NextResponse.json({ success: true, role: 'admin' });
         }
 
         const { data: student, error } = await supabaseServer
             .from('students')
             .select('id, name, traffic_count, login_count, last_visited_at')
-            .eq('id', decoded.id)
+            .eq('id', user.id)
             .single();
 
         if (error || !student) {

@@ -1,11 +1,24 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  // output: 'export',  <-- DELETE THIS LINE IF IT EXISTS
+  // Disable X-Powered-By header for security
+  poweredByHeader: false,
+  
   typescript: {
-    ignoreBuildErrors: true, // Optional: prevents build fail on TS errors
+    ignoreBuildErrors: true,
   },
-  eslint: {
-    ignoreDuringBuilds: true, // Optional: prevents build fail on lint errors
+
+  async headers() {
+    return [
+      {
+        source: '/:path*',
+        headers: [
+          {
+            key: 'X-Content-Type-Options',
+            value: 'nosniff',
+          },
+        ],
+      },
+    ];
   },
 };
 
