@@ -55,6 +55,15 @@ function getDirectDownloadUrl(url: string) {
     return url;
 }
 
+// ⏳ Check if file was uploaded recently (within 72 hours / 3 days)
+function isNewUpload(createdAt: string, hours = 72): boolean {
+    if (!createdAt) return false;
+    const createdTime = new Date(createdAt).getTime();
+    if (isNaN(createdTime)) return false;
+    const diffHours = (Date.now() - createdTime) / (1000 * 60 * 60);
+    return diffHours >= 0 && diffHours <= hours;
+}
+
 // 🔍 Search Term Text Highlighter
 function HighlightText({ text, highlight }: { text: string; highlight: string }) {
     if (!highlight || !highlight.trim()) return <>{text}</>;
@@ -457,9 +466,17 @@ export default function Home() {
     // --- DATABASE & AUTH ---
     async function fetchData() {
         const { data: folderData } = await supabase.from('folders').select('*').order('code', { ascending: true });
-        if (folderData) setFolders(folderData);
+        if (folderData) {
+            setFolders(folderData.map((f: any) => ({ ...f, code: (f.code || '').trim() })));
+        }
         const { data: fileData } = await supabase.from('courses').select('*').order('created_at', { ascending: true });
-        if (fileData) setFiles(fileData);
+        if (fileData) {
+            setFiles(fileData.map((f: any) => ({
+                ...f,
+                course_code: (f.course_code || '').trim(),
+                category: (f.category || '').trim()
+            })));
+        }
     }
 
     // --- 🔒 SECURE LOGIN ---
@@ -555,7 +572,7 @@ export default function Home() {
         if (!newFileTitle || !targetFolderCode) return alert("Fill all fields");
         if (!currentUser) return alert("You must be logged in!");
 
-        const selectedFolder = folders.find(f => f.code === targetFolderCode);
+        const selectedFolder = folders.find(f => (f.code || '').trim().toLowerCase() === targetFolderCode.trim().toLowerCase());
         if (!selectedFolder) return alert("Invalid Folder Selected");
 
         const finalYear = selectedFolder.year;
@@ -841,34 +858,56 @@ export default function Home() {
                                                     <div className="ml-4 mt-1 space-y-1">
                                                         {sData.folders.length === 0 && <div className="text-[10px] text-gray-700 pl-2 font-mono">NO_DATA_FOUND</div>}
                                                         {sData.folders.map(folder => {
-                                                            const hasCourseMatch = searchTerm.length > 0 && files.some(f => f.course_code === folder.code && f.title.toLowerCase().includes(searchTerm));
+                                                            const fCode = (folder.code || '').trim().toLowerCase();
+                                                            const hasCourseMatch = searchTerm.length > 0 && files.some(f => (f.course_code || '').trim().toLowerCase() === fCode && f.title.toLowerCase().includes(searchTerm));
+                                                            const hasNewInCourse = files.some(f => (f.course_code || '').trim().toLowerCase() === fCode && isNewUpload(f.created_at));
                                                             return (
                                                             <div key={folder.id}>
                                                                 <button onClick={() => toggleState(setExpandedCourses, folder.code)} className="w-full flex items-center gap-2 p-2 hover:bg-white/5 rounded-lg text-xs text-gray-300 border border-transparent transition-colors group">
                                                                     {expandedCourses.includes(folder.code) ? <ChevronDown size={12} className="text-cyan-500" /> : <ChevronRight size={12} className="text-gray-600 group-hover:text-cyan-400" />}
                                                                     <span className={`font-bold tracking-wide transition-colors ${hasCourseMatch ? 'text-cyan-300 drop-shadow-[0_0_8px_rgba(6,182,212,0.5)]' : 'text-cyan-200/80 group-hover:text-white'}`}>{folder.code}</span>
-                                                                    {hasCourseMatch && <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse shadow-[0_0_6px_rgba(34,211,238,0.8)] ml-auto" title="Contains matching files" />}
+                                                                    {hasCourseMatch ? (
+                                                                        <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse shadow-[0_0_6px_rgba(34,211,238,0.8)] ml-auto" title="Contains matching files" />
+                                                                    ) : hasNewInCourse ? (
+                                                                        <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 shadow-[0_0_8px_rgba(34,211,238,0.9)] animate-pulse ml-auto" title="Contains newly uploaded files" />
+                                                                    ) : null}
                                                                 </button>
 
                                                                 {expandedCourses.includes(folder.code) && (
                                                                     <div className="ml-3 pl-2 border-l border-white/5 mt-1 space-y-1">
                                                                         {CATEGORIES.map(cat => {
-                                                                            const catFiles = files.filter(f => f.course_code === folder.code && f.category === cat && f.title.toLowerCase().includes(searchTerm));
+                                                                            const catLower = cat.trim().toLowerCase();
+                                                                            const catFiles = files.filter(f => (f.course_code || '').trim().toLowerCase() === fCode && (f.category || '').trim().toLowerCase() === catLower && f.title.toLowerCase().includes(searchTerm));
                                                                             const catKey = `${folder.code}-${cat}`;
+                                                                            const hasNewInCat = catFiles.some(f => isNewUpload(f.created_at));
                                                                             return (
                                                                                 <div key={cat}>
                                                                                     <button onClick={() => toggleState(setExpandedCategories, catKey)} className={`w-full flex items-center gap-2 p-1.5 hover:bg-white/5 rounded text-[10px] uppercase font-mono tracking-wider transition-colors ${expandedCategories.includes(catKey) ? 'text-cyan-400' : 'text-gray-500 hover:text-gray-300'}`}>
                                                                                         {expandedCategories.includes(catKey) ? <ChevronDown size={10} /> : <ChevronRight size={10} />}
                                                                                         {cat}
-                                                                                        <span className={`ml-auto text-[9px] px-1 rounded border transition-colors ${searchTerm && catFiles.length > 0 ? 'bg-cyan-500/20 text-cyan-300 border-cyan-500/40 font-bold shadow-[0_0_6px_rgba(6,182,212,0.3)]' : 'bg-white/5 text-gray-400 border-white/5'}`}>{catFiles.length}</span>
+                                                                                        <div className="ml-auto flex items-center gap-1.5">
+                                                                                            {hasNewInCat && (
+                                                                                                <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 shadow-[0_0_8px_rgba(34,211,238,0.9)] animate-pulse" title="New file uploaded recently" />
+                                                                                            )}
+                                                                                            <span className={`text-[9px] px-1 rounded border transition-colors ${searchTerm && catFiles.length > 0 ? 'bg-cyan-500/20 text-cyan-300 border-cyan-500/40 font-bold shadow-[0_0_6px_rgba(6,182,212,0.3)]' : 'bg-white/5 text-gray-400 border-white/5'}`}>{catFiles.length}</span>
+                                                                                        </div>
                                                                                     </button>
                                                                                     {expandedCategories.includes(catKey) && (
                                                                                         <div className="ml-4 space-y-1 mt-1">
                                                                                             {catFiles.length === 0 && <div className="text-[9px] text-gray-700 italic px-2 font-mono">// EMPTY</div>}
-                                                                                            {catFiles.map(file => (
+                                                                                            {catFiles.map(file => {
+                                                                                                const isNew = isNewUpload(file.created_at);
+                                                                                                return (
                                                                                                 <div key={file.id} className="relative group">
-                                                                                                    <button onClick={() => handleSelectFile(file)} className={`w-full text-left flex items-center gap-2 p-2 rounded text-[11px] border transition-colors ${selectedFile?.id === file.id ? 'bg-white/10 text-white border-white/20 shadow-sm' : (searchTerm && file.title.toLowerCase().includes(searchTerm) ? 'bg-cyan-500/10 text-cyan-200 border-cyan-500/30 font-medium' : 'hover:bg-white/5 text-gray-400 border-transparent bg-transparent hover:text-gray-200')}`}>
-                                                                                                        <FileText size={12} className={selectedFile?.id === file.id ? "text-cyan-300" : (searchTerm && file.title.toLowerCase().includes(searchTerm) ? "text-cyan-400" : "")} /> <span className="truncate"><HighlightText text={file.title} highlight={searchTerm} /></span>
+                                                                                                    <button onClick={() => handleSelectFile(file)} className={`w-full text-left flex items-center gap-2 p-2 rounded text-[11px] border transition-colors ${selectedFile?.id === file.id ? 'bg-white/10 text-white border-white/20 shadow-sm' : (searchTerm && file.title.toLowerCase().includes(searchTerm) ? 'bg-cyan-500/10 text-cyan-200 border-cyan-500/30 font-medium' : isNew ? 'bg-cyan-500/5 text-gray-200 border-cyan-500/30 hover:bg-cyan-500/10' : 'hover:bg-white/5 text-gray-400 border-transparent bg-transparent hover:text-gray-200')}`}>
+                                                                                                        <FileText size={12} className={selectedFile?.id === file.id ? "text-cyan-300" : (searchTerm && file.title.toLowerCase().includes(searchTerm) || isNew ? "text-cyan-400" : "")} />
+                                                                                                        <span className="truncate flex-1"><HighlightText text={file.title} highlight={searchTerm} /></span>
+                                                                                                        {isNew && (
+                                                                                                            <span className="shrink-0 text-[8px] font-mono font-bold px-1.5 py-0.5 rounded-full bg-cyan-400/20 text-cyan-300 border border-cyan-400/50 shadow-[0_0_8px_rgba(6,182,212,0.4)] tracking-wider uppercase flex items-center gap-1" title="Uploaded within the last 72 hours">
+                                                                                                                <span className="w-1 h-1 rounded-full bg-cyan-300 animate-ping"></span>
+                                                                                                                NEW
+                                                                                                            </span>
+                                                                                                        )}
                                                                                                     </button>
                                                                                                     {currentUser && (
                                                                                                         <button onClick={() => handleDeleteFile(file)} className="absolute right-1 top-1.5 p-1 text-red-400 opacity-0 group-hover:opacity-100 hover:bg-red-500/20 rounded transition-colors">
@@ -876,7 +915,7 @@ export default function Home() {
                                                                                                         </button>
                                                                                                     )}
                                                                                                 </div>
-                                                                                            ))}
+                                                                                            );})}
                                                                                         </div>
                                                                                     )}
                                                                                 </div>
@@ -1219,14 +1258,16 @@ export default function Home() {
 
                             {currentUser && dashboardFiles.length > 0 ? (
                                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6 mb-8">
-                                    {dashboardFiles.map((file, idx) => (
+                                    {dashboardFiles.map((file, idx) => {
+                                        const isNew = isNewUpload(file.created_at);
+                                        return (
                                         <motion.div 
                                             initial={{ opacity: 0, y: 30 }}
                                             whileInView={{ opacity: 1, y: 0 }}
                                             viewport={{ once: true, margin: "100px" }}
                                             transition={{ duration: 0.4, ease: "easeOut" }}
                                             key={file.id} 
-                                            className={`group bg-white/[0.04] backdrop-blur-md border ${searchTerm ? 'border-cyan-500/40 shadow-[0_0_20px_rgba(6,182,212,0.15)] bg-white/[0.07]' : 'border-white/10 hover:border-white/30'} p-5 rounded-2xl transition-all duration-300 hover:-translate-y-1 hover:shadow-[0_10px_30px_rgba(0,0,0,0.3)] hover:bg-white/[0.08] flex flex-col gap-4 relative cursor-pointer overflow-hidden`} 
+                                            className={`group bg-white/[0.04] backdrop-blur-md border ${searchTerm ? 'border-cyan-500/40 shadow-[0_0_20px_rgba(6,182,212,0.15)] bg-white/[0.07]' : isNew ? 'border-cyan-500/40 shadow-[0_0_25px_rgba(6,182,212,0.15)] bg-gradient-to-b from-cyan-500/[0.07] to-white/[0.03]' : 'border-white/10 hover:border-white/30'} p-5 rounded-2xl transition-all duration-300 hover:-translate-y-1 hover:shadow-[0_10px_30px_rgba(0,0,0,0.3)] hover:bg-white/[0.08] flex flex-col gap-4 relative cursor-pointer overflow-hidden`} 
                                             onClick={() => handleSelectFile(file)}
                                         >
                                             {/* Very subtle corners */}
@@ -1236,6 +1277,14 @@ export default function Home() {
                                             <div className="h-44 bg-black/20 rounded-xl mb-1 overflow-hidden relative border border-white/10 transition-colors">
                                                 <FileThumbnail url={file.pdf_url} fileTitle={file.title} />
                                                 <div className="absolute inset-0 bg-gradient-to-t from-[#060913]/90 via-transparent to-transparent" />
+                                                
+                                                {isNew && (
+                                                    <div className="absolute top-3 left-3 z-10 flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-[#060913]/85 border border-cyan-400/50 backdrop-blur-md shadow-[0_0_15px_rgba(6,182,212,0.4)]" title="Uploaded within the last 72 hours">
+                                                        <span className="w-1.5 h-1.5 rounded-full bg-cyan-300 animate-ping" />
+                                                        <span className="text-[10px] font-mono font-black text-cyan-200 tracking-wider uppercase">NEW</span>
+                                                    </div>
+                                                )}
+
                                                 <div className="absolute top-3 right-3 bg-white/10 backdrop-blur-md p-2 rounded-lg border border-white/20 shadow-lg transition-colors"><FileText size={16} className="text-white drop-shadow-md" /></div>
                                             </div>
 
@@ -1255,7 +1304,7 @@ export default function Home() {
                                                 <span className="text-[10px] bg-white/10 text-gray-200 px-2.5 py-1 rounded-md border border-white/10 truncate max-w-[50%] font-medium">{file.category}</span>
                                             </div>
                                         </motion.div>
-                                    ))}
+                                    );})}
                                 </div>
                             ) : (
                                 <div className="flex-1 flex flex-col items-center justify-center text-white/20 gap-4 mb-8">
