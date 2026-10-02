@@ -54,6 +54,26 @@ export async function POST(request: Request) {
 
         if (error) {
             console.error('Course insert error:', error);
+
+            // 🛑 AUTOMATIC ROLLBACK: If database insert fails, remove orphaned file from Google Drive
+            const driveMatch = pdf_url.match(/\/d\/([a-zA-Z0-9_-]+)/) || pdf_url.match(/[?&]id=([a-zA-Z0-9_-]+)/);
+            if (driveMatch && driveMatch[1]) {
+                const fileId = driveMatch[1];
+                const googleScriptUrl = process.env.GOOGLE_SCRIPT_URL || process.env.NEXT_PUBLIC_GOOGLE_SCRIPT_URL;
+                if (googleScriptUrl) {
+                    try {
+                        await fetch(googleScriptUrl, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'text/plain' },
+                            body: JSON.stringify({ action: 'delete', fileId })
+                        });
+                        console.log(`Cleaned up orphaned Google Drive file ${fileId} after database insert error.`);
+                    } catch (cleanupErr) {
+                        console.error('Failed to cleanup Drive file on insert error:', cleanupErr);
+                    }
+                }
+            }
+
             return NextResponse.json({ success: false, error: 'Failed to save course record.' }, { status: 500 });
         }
 

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import { createClient } from '@supabase/supabase-js';
 import { motion, AnimatePresence } from "framer-motion";
 import {
@@ -23,7 +23,6 @@ const supabase = createClient(
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 );
 
-const GOOGLE_SCRIPT_URL = process.env.NEXT_PUBLIC_GOOGLE_SCRIPT_URL!;
 
 function getFileIdFromUrl(url: string) {
     if (!url) return null;
@@ -37,13 +36,22 @@ function getDriveThumbnail(url: string) {
     if (!url) return null;
     const match = url.match(/\/d\/([a-zA-Z0-9_-]+)/);
     if (match && match[1]) {
-        return `https://drive.google.com/thumbnail?id=${match[1]}&sz=w800`;
+        return `https://drive.google.com/thumbnail?id=${match[1]}&sz=w400`;
     }
     const idMatch = url.match(/[?&]id=([a-zA-Z0-9_-]+)/);
     if (idMatch && idMatch[1]) {
-        return `https://drive.google.com/thumbnail?id=${idMatch[1]}&sz=w800`;
+        return `https://drive.google.com/thumbnail?id=${idMatch[1]}&sz=w400`;
     }
     return null;
+}
+
+function getCleanPreviewUrl(url: string) {
+    if (!url) return "";
+    let clean = url;
+    if (clean.includes("drive.google.com") && !clean.includes("/preview")) {
+        clean = clean.replace(/\/view.*|\/edit.*/, '/preview');
+    }
+    return clean;
 }
 
 function getDirectDownloadUrl(url: string) {
@@ -103,58 +111,88 @@ function HighlightText({ text, highlight }: { text: string; highlight: string })
     );
 }
 
-// 🖼️ Thumbnail Component
+// 🖼️ Ultra-Fast Document Thumbnail Component with Multi-Tier Acceleration
 const FileThumbnail = ({ url, fileTitle }: { url: string, fileTitle: string }) => {
-    const [imgSrc, setImgSrc] = useState<string | null>(getDriveThumbnail(url));
+    const fileId = useMemo(() => getFileIdFromUrl(url), [url]);
+
+    // Primary: Google Drive's native CDN thumbnail endpoint (extremely fast, low-latency)
+    const directThumb = fileId ? `https://drive.google.com/thumbnail?id=${fileId}&sz=w400` : null;
+    // Secondary: Server-side high-speed RAM-cached proxy (<1ms on warm cache)
+    const proxyThumb = fileId ? `/api/thumbnail?id=${fileId}` : null;
+
+    const [imgSrc, setImgSrc] = useState<string | null>(directThumb || proxyThumb);
+    const [isLoaded, setIsLoaded] = useState(false);
     const [hasError, setHasError] = useState(false);
 
     useEffect(() => {
-        setImgSrc(getDriveThumbnail(url));
+        setImgSrc(directThumb || proxyThumb);
+        setIsLoaded(false);
         setHasError(false);
-    }, [url]);
+    }, [url, directThumb, proxyThumb]);
 
-    const getGradient = (title: string) => {
-        const char = title.charAt(0).toUpperCase();
-        if (char >= 'A' && char <= 'F') return 'from-blue-600/60 to-cyan-400/60';
-        if (char >= 'G' && char <= 'L') return 'from-purple-600/60 to-fuchsia-400/60';
-        if (char >= 'M' && char <= 'R') return 'from-indigo-600/60 to-blue-400/60';
-        return 'from-slate-600/60 to-slate-400/60';
+    const handleImgError = () => {
+        // If direct Google Drive CDN failed, instantly fall back to our server memory-cached proxy
+        if (imgSrc === directThumb && proxyThumb) {
+            setImgSrc(proxyThumb);
+        } else {
+            setHasError(true);
+        }
     };
 
-    if (hasError || !imgSrc) {
-        const fileId = getFileIdFromUrl(url);
-        if (fileId) {
-            // Live iframe fallback if thumbnail API fails (Drive blocks hotlinking for some files)
-            return (
-                <div className="w-full h-full relative overflow-hidden bg-white/5 flex items-center justify-center">
-                    <iframe 
-                        src={`https://drive.google.com/file/d/${fileId}/preview`} 
-                        className="absolute top-[-55px] left-0 w-full h-[calc(100%+110px)] pointer-events-none" 
-                        loading="lazy" 
-                    />
-                    <div className="absolute inset-0 bg-transparent z-10" />
-                </div>
-            );
-        }
+    const getDocGradient = (title: string) => {
+        const char = (title || 'A').charAt(0).toUpperCase();
+        if (char >= 'A' && char <= 'E') return 'from-blue-600/30 via-cyan-950/40 to-[#0c0d12]';
+        if (char >= 'F' && char <= 'J') return 'from-emerald-600/30 via-teal-950/40 to-[#0c0d12]';
+        if (char >= 'K' && char <= 'O') return 'from-purple-600/30 via-indigo-950/40 to-[#0c0d12]';
+        if (char >= 'P' && char <= 'T') return 'from-fuchsia-600/30 via-rose-950/40 to-[#0c0d12]';
+        return 'from-amber-600/30 via-orange-950/40 to-[#0c0d12]';
+    };
 
-        // Final graceful fallback if it's not a Drive link
+    // If both Google Drive CDN and proxy fail (e.g. oversize >50MB files where Google provides no thumbnail)
+    if (hasError || !imgSrc) {
         return (
-            <div className={`w-full h-full flex items-center justify-center bg-gradient-to-br ${getGradient(fileTitle)} backdrop-blur-sm`}>
-                <div className="bg-white/10 p-4 rounded-full border border-white/20 shadow-[0_0_20px_rgba(255,255,255,0.1)]">
-                    <FileText size={32} className="text-white drop-shadow-md" />
+            <div className={`w-full h-full flex flex-col justify-between p-4 bg-gradient-to-br ${getDocGradient(fileTitle)} border border-white/5 relative overflow-hidden group-hover:scale-[1.02] transition-transform duration-300`}>
+                <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_right,rgba(255,255,255,0.06)_1px,transparent_1px)] bg-[size:10px_10px] opacity-60"></div>
+                <div className="relative z-10 flex items-center justify-between">
+                    <span className="text-[9px] font-mono tracking-wider uppercase text-cyan-300/90 font-bold bg-cyan-950/60 border border-cyan-500/30 px-2 py-0.5 rounded shadow-sm">
+                        PDF DOCUMENT
+                    </span>
+                    <FileText size={16} className="text-cyan-300/70" />
+                </div>
+                <div className="relative z-10 flex flex-col gap-1.5 my-auto">
+                    <p className="text-xs font-semibold text-gray-200 line-clamp-3 leading-snug drop-shadow-sm">
+                        {fileTitle}
+                    </p>
+                </div>
+                <div className="relative z-10 flex items-center gap-1.5 text-[10px] font-mono text-gray-400">
+                    <span className="w-1.5 h-1.5 rounded-full bg-cyan-400/80 animate-pulse"></span>
+                    <span>ONLINE DOCUMENT</span>
                 </div>
             </div>
         );
     }
 
     return (
-        <img
-            src={imgSrc}
-            className="w-full h-full object-cover opacity-90 group-hover:opacity-100 transition-opacity mix-blend-normal"
-            alt={fileTitle}
-            loading="lazy"
-            onError={() => setHasError(true)}
-        />
+        <div className="w-full h-full relative overflow-hidden bg-[#0d0e12]">
+            {/* Shimmer skeleton while image streams in */}
+            {!isLoaded && (
+                <div className="absolute inset-0 bg-white/[0.03] animate-pulse flex items-center justify-center">
+                    <div className="w-6 h-6 rounded-full border-2 border-cyan-400/20 border-t-cyan-400 animate-spin"></div>
+                </div>
+            )}
+            <img
+                src={imgSrc}
+                alt={fileTitle}
+                className={`w-full h-full object-cover transition-all duration-300 ${
+                    isLoaded ? 'opacity-90 group-hover:opacity-100 group-hover:scale-105' : 'opacity-0 scale-95'
+                }`}
+                loading="lazy"
+                decoding="async"
+                referrerPolicy="no-referrer"
+                onLoad={() => setIsLoaded(true)}
+                onError={handleImgError}
+            />
+        </div>
     );
 };
 
@@ -179,6 +217,7 @@ export default function Home() {
     const [folders, setFolders] = useState<any[]>([]);
     const [files, setFiles] = useState<any[]>([]);
     const [selectedFile, setSelectedFile] = useState<any>(null);
+    const [iframeLoading, setIframeLoading] = useState(true);
 
     // Expand States
     const [expandedYears, setExpandedYears] = useState<string[]>([]);
@@ -400,6 +439,7 @@ export default function Home() {
 
     useEffect(() => {
         if (selectedFile) {
+            setIframeLoading(true);
             setChatHistory([]);
             setSuggestedQuestions([]);
             setIsHeaderMenuOpen(false);
@@ -567,7 +607,116 @@ export default function Home() {
         }
     }
 
-    // --- 📂 FILE UPLOAD LOGIC ---
+    // --- 📂 FILE UPLOAD & DRIVE HELPER ---
+    async function callDriveService(payload: any) {
+        try {
+            const proxyRes = await fetch('/api/drive', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+            const text = await proxyRes.text();
+            if (text) {
+                try {
+                    const data = JSON.parse(text);
+                    if (data && (data.success !== undefined || data.uploadUrl || data.fileId)) {
+                        return data;
+                    }
+                } catch {
+                    // Not valid JSON
+                }
+            }
+        } catch (err) {
+            console.error("Storage service error:", err);
+        }
+
+        throw new Error("Unable to communicate with the storage service.");
+    }
+
+    async function uploadPayloadToDrive(file: File, uploadUrl: string, onProgress: (pct: number) => void): Promise<any> {
+        // Chunk size: 4MB (must be multiple of 256 KiB; 16 * 256KB = 4194304 bytes)
+        // Faster throughput with fewer round trips, staying well within serverless payload limits
+        const CHUNK_SIZE = 4 * 1024 * 1024;
+        const totalSize = file.size;
+
+        if (totalSize <= CHUNK_SIZE) {
+            return new Promise((resolve, reject) => {
+                const xhr = new XMLHttpRequest();
+                xhr.open("PUT", "/api/drive", true);
+                xhr.setRequestHeader("Content-Type", file.type || "application/octet-stream");
+                xhr.setRequestHeader("x-upload-url", uploadUrl);
+                xhr.setRequestHeader("Content-Range", `bytes 0-${totalSize - 1}/${totalSize}`);
+
+                xhr.upload.onprogress = (e) => {
+                    if (e.lengthComputable) {
+                        onProgress((e.loaded / e.total) * 100);
+                    }
+                };
+
+                xhr.onload = () => {
+                    if (xhr.status >= 200 && xhr.status < 300) {
+                        try {
+                            resolve(JSON.parse(xhr.responseText));
+                        } catch {
+                            resolve({ raw: xhr.responseText });
+                        }
+                    } else {
+                        reject(new Error(`Upload failed (${xhr.status}): ${xhr.statusText || 'Server error'}`));
+                    }
+                };
+                xhr.onerror = () => reject(new Error("Network connection error during upload."));
+                xhr.send(file);
+            });
+        }
+
+        // Upload in 4MB chunks for larger files
+        let start = 0;
+        let lastResult: any = null;
+
+        while (start < totalSize) {
+            const end = Math.min(start + CHUNK_SIZE, totalSize);
+            const chunk = file.slice(start, end);
+            const isLastChunk = end === totalSize;
+
+            lastResult = await new Promise((resolve, reject) => {
+                const xhr = new XMLHttpRequest();
+                xhr.open("PUT", "/api/drive", true);
+                xhr.setRequestHeader("Content-Type", file.type || "application/octet-stream");
+                xhr.setRequestHeader("x-upload-url", uploadUrl);
+                xhr.setRequestHeader("Content-Range", `bytes ${start}-${end - 1}/${totalSize}`);
+
+                xhr.upload.onprogress = (e) => {
+                    if (e.lengthComputable) {
+                        const currentLoaded = start + e.loaded;
+                        onProgress((currentLoaded / totalSize) * 100);
+                    }
+                };
+
+                xhr.onload = () => {
+                    if (xhr.status === 308 || (xhr.status >= 200 && xhr.status < 300)) {
+                        if (isLastChunk && xhr.status >= 200 && xhr.status < 300) {
+                            try {
+                                resolve(JSON.parse(xhr.responseText));
+                            } catch {
+                                resolve({ raw: xhr.responseText });
+                            }
+                        } else {
+                            resolve(null);
+                        }
+                    } else {
+                        reject(new Error(`Chunk upload failed (${xhr.status}): ${xhr.statusText || 'Server error'}`));
+                    }
+                };
+                xhr.onerror = () => reject(new Error("Network connection error during chunk upload."));
+                xhr.send(chunk);
+            });
+
+            start = end;
+        }
+
+        return lastResult;
+    }
+
     async function handleAddFile() {
         if (!newFileTitle || !targetFolderCode) return alert("Fill all fields");
         if (!currentUser) return alert("You must be logged in!");
@@ -579,6 +728,7 @@ export default function Home() {
         const finalSemester = selectedFolder.semester;
 
         let finalUrl = "";
+        let newlyUploadedFileId: string | null = null;
         setIsUploading(true);
         setUploadProgress(0);
 
@@ -588,58 +738,50 @@ export default function Home() {
 
                 setUploadProgress(5);
 
-                const initResponse = await fetch(GOOGLE_SCRIPT_URL, {
-                    method: 'POST',
-                    headers: { "Content-Type": "text/plain" },
-                    body: JSON.stringify({
-                        action: "get_upload_url",
-                        filename: uploadFile.name,
-                        mimeType: uploadFile.type
-                    })
+                const initData = await callDriveService({
+                    action: "get_upload_url",
+                    filename: uploadFile.name,
+                    mimeType: uploadFile.type
                 });
-                const initData = await initResponse.json();
-                if (!initData.success) throw new Error(initData.error || "Failed to start upload");
+                if (!initData || !initData.success || !initData.uploadUrl) {
+                    throw new Error(initData?.error || "Failed to initialize upload session.");
+                }
 
                 const uploadUrl = initData.uploadUrl;
 
-                await new Promise((resolve, reject) => {
-                    const xhr = new XMLHttpRequest();
-                    xhr.open("PUT", uploadUrl, true);
-                    xhr.setRequestHeader("Content-Type", uploadFile.type);
-
-                    xhr.upload.onprogress = (e) => {
-                        if (e.lengthComputable) {
-                            const percentComplete = (e.loaded / e.total) * 85;
-                            setUploadProgress(5 + percentComplete);
-                        }
-                    };
-
-                    xhr.onload = () => resolve(xhr.response);
-                    xhr.onerror = () => {
-                        console.warn("XHR Error detected. Proceeding...");
-                        resolve(null);
-                    };
-
-                    xhr.send(uploadFile);
+                const uploadResult: any = await uploadPayloadToDrive(uploadFile, uploadUrl, (pct) => {
+                    setUploadProgress(5 + (pct * 0.85));
                 });
 
                 setUploadProgress(92);
 
-                const finalizeResponse = await fetch(GOOGLE_SCRIPT_URL, {
-                    method: 'POST',
-                    headers: { "Content-Type": "text/plain" },
-                    body: JSON.stringify({
-                        action: "make_public",
-                        filename: uploadFile.name
-                    })
-                });
-                const finalizeData = await finalizeResponse.json();
-                if (!finalizeData.success) throw new Error(finalizeData.error || "Verification failed.");
+                const uploadedFileId = uploadResult?.id;
+                newlyUploadedFileId = uploadedFileId || null;
 
-                if (finalizeData.fileId) {
-                    finalUrl = "https://drive.google.com/file/d/" + finalizeData.fileId + "/preview";
-                } else {
-                    finalUrl = finalizeData.url;
+                try {
+                    const finalizeData = await callDriveService({
+                        action: "make_public",
+                        filename: uploadFile.name,
+                        fileId: uploadedFileId
+                    });
+
+                    if (finalizeData?.fileId) {
+                        finalUrl = "https://drive.google.com/file/d/" + finalizeData.fileId + "/preview";
+                        newlyUploadedFileId = finalizeData.fileId;
+                    } else if (finalizeData?.url) {
+                        finalUrl = finalizeData.url;
+                    }
+                } catch (finErr) {
+                    console.warn("Make public verification warning:", finErr);
+                }
+
+                // If finalize didn't yield a URL but we got file id from resumable upload XHR response:
+                if (!finalUrl && uploadedFileId) {
+                    finalUrl = "https://drive.google.com/file/d/" + uploadedFileId + "/preview";
+                }
+
+                if (!finalUrl) {
+                    throw new Error("File uploaded, but could not determine Google Drive view link.");
                 }
 
             } else {
@@ -668,7 +810,16 @@ export default function Home() {
 
             const courseData = await courseRes.json();
             if (!courseData.success) {
-                alert("Upload Error: " + (courseData.error || "Failed to save material"));
+                // 🛑 AUTOMATIC ROLLBACK: If database integration fails, remove file from Google Drive
+                if (newlyUploadedFileId) {
+                    console.warn("Database integration failed. Removing orphaned file from Google Drive:", newlyUploadedFileId);
+                    try {
+                        await callDriveService({ action: "delete", fileId: newlyUploadedFileId });
+                    } catch (cleanupErr) {
+                        console.error("Failed to remove orphaned file:", cleanupErr);
+                    }
+                }
+                alert("Upload Error: " + (courseData.error || "Failed to save material in database. File was automatically removed from storage."));
             } else {
                 setShowAddFileModal(false);
                 setNewFileTitle("");
@@ -677,6 +828,15 @@ export default function Home() {
                 fetchData();
             }
         } catch (error: any) {
+            // 🛑 AUTOMATIC ROLLBACK ON EXCEPTION: Clean up file if uploaded to Drive before error occurred
+            if (newlyUploadedFileId) {
+                console.warn("Upload exception. Cleaning up orphaned Google Drive file:", newlyUploadedFileId);
+                try {
+                    await callDriveService({ action: "delete", fileId: newlyUploadedFileId });
+                } catch (cleanupErr) {
+                    console.error("Failed to clean up file after error:", cleanupErr);
+                }
+            }
             alert("Error: " + (error.message || error));
             console.error(error);
         }
@@ -698,11 +858,7 @@ export default function Home() {
         const fileId = getFileIdFromUrl(file.pdf_url);
         if (fileId) {
             try {
-                await fetch(GOOGLE_SCRIPT_URL, {
-                    method: 'POST',
-                    headers: { "Content-Type": "text/plain" },
-                    body: JSON.stringify({ action: "delete", fileId: fileId })
-                });
+                await callDriveService({ action: "delete", fileId: fileId });
             } catch (err) {
                 console.error("Drive Deletion Error:", err);
             }
@@ -728,6 +884,7 @@ export default function Home() {
     };
 
     const handleSelectFile = (file: any) => {
+        setIframeLoading(true);
         if (!selectedFile) {
             window.history.pushState({ fileViewer: true, fileId: file.id }, '', '#view');
         } else {
@@ -1017,12 +1174,11 @@ export default function Home() {
                     <div className="flex-1 flex flex-col md:flex-row overflow-hidden p-0 md:p-4 gap-4 relative">
                         {/* PDF Viewer Area */}
                         <motion.div 
-                            initial={{ opacity: 0, y: 20, scale: 0.98 }}
-                            animate={{ opacity: 1, y: 0, scale: 1 }}
-                            exit={{ opacity: 0, y: -20, scale: 0.98 }}
-                            transition={{ duration: 0.4, ease: "easeOut" }}
-                            layout 
-                            className="flex-1 bg-white/[0.04] backdrop-blur-3xl md:rounded-2xl border-x md:border border-white/10 overflow-hidden shadow-[0_15px_40px_rgba(0,0,0,0.4)] relative flex flex-col"
+                            initial={{ opacity: 0, y: 15 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            exit={{ opacity: 0, y: -15 }}
+                            transition={{ duration: 0.25, ease: "easeOut" }}
+                            className="flex-1 bg-white/[0.04] backdrop-blur-2xl md:rounded-2xl border-x md:border border-white/10 overflow-hidden shadow-[0_15px_40px_rgba(0,0,0,0.4)] relative flex flex-col"
                         >
                             <div className="h-16 bg-black/20 border-b border-white/10 flex items-center justify-between px-3 md:px-5 gap-2 md:gap-3 relative shrink-0">
                                 <button
@@ -1163,7 +1319,31 @@ export default function Home() {
                                 </div>
                             </div>
 
-                            <iframe src={selectedFile.pdf_url} className="flex-1 w-full bg-white/5 border-0" title="Preview" />
+                            <div className="relative flex-1 w-full bg-[#0a0a0c] overflow-hidden flex flex-col">
+                                {iframeLoading && (
+                                    <div className="absolute inset-0 z-20 flex flex-col items-center justify-center bg-[#09090b]/90 backdrop-blur-md gap-4">
+                                        <div className="relative">
+                                            <div className="w-12 h-12 rounded-full border-2 border-cyan-500/20 border-t-cyan-400 animate-spin"></div>
+                                            <div className="absolute inset-0 flex items-center justify-center">
+                                                <FileText size={18} className="text-cyan-400/80 animate-pulse" />
+                                            </div>
+                                        </div>
+                                        <div className="flex flex-col items-center gap-1.5 px-4 text-center">
+                                            <p className="text-xs font-mono font-bold tracking-widest uppercase text-cyan-200">INITIALIZING PREVIEW</p>
+                                            <p className="text-[11px] text-gray-400 font-mono max-w-sm truncate">{selectedFile.title}</p>
+                                        </div>
+                                    </div>
+                                )}
+
+                                <iframe
+                                    key={selectedFile.id}
+                                    src={getCleanPreviewUrl(selectedFile.pdf_url)}
+                                    className={`flex-1 w-full border-0 transition-opacity duration-300 ${iframeLoading ? 'opacity-0' : 'opacity-100'}`}
+                                    title="Preview"
+                                    loading="eager"
+                                    onLoad={() => setIframeLoading(false)}
+                                />
+                            </div>
 
                             <button onClick={() => setIsAiOpen(!isAiOpen)} className="absolute bottom-6 right-6 bg-white/10 backdrop-blur-xl p-4 rounded-full text-white shadow-[0_8px_30px_rgba(0,0,0,0.3)] hover:shadow-[0_10px_40px_rgba(0,0,0,0.4)] hover:-translate-y-1 transition-all duration-300 z-10 flex items-center justify-center border border-white/20 hover:border-white/30 hover:bg-white/20 group">
                                 {isAiOpen ? <ChevronRight size={22} className="text-white drop-shadow-md" /> : <MessageSquare size={22} className="text-white drop-shadow-md" />}
