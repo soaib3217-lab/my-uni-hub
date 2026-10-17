@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { supabaseServer } from '@/lib/supabaseServer';
 import { getAuthenticatedUser, sanitizeString } from '@/lib/security';
+import { pregenerateCourseAi } from '@/lib/aiService';
 
 // POST: Add new course material (Requires authentication)
 export async function POST(request: Request) {
@@ -75,6 +76,13 @@ export async function POST(request: Request) {
             }
 
             return NextResponse.json({ success: false, error: 'Failed to save course record.' }, { status: 500 });
+        }
+
+        // 🤖 Asynchronous Background Pre-generation for Cheat Sheet & Quiz (non-blocking)
+        if (data?.id) {
+            pregenerateCourseAi(data.id, data.title, data.course_code).catch(err => {
+                console.warn('[Courses API] Background pregeneration error:', err);
+            });
         }
 
         return NextResponse.json({ success: true, course: data });

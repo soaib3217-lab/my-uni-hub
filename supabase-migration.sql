@@ -75,3 +75,11 @@ DROP POLICY IF EXISTS "Public students modify" ON students;
 -- No public policies exist, keeping student device footprints and IP/UA audit logs private.
 DROP POLICY IF EXISTS "Public traffic logs viewable" ON traffic_logs;
 DROP POLICY IF EXISTS "Public traffic logs insert" ON traffic_logs;
+
+-- ------------------------------------------------------------------------------
+-- 8. AI CHEAT SHEET & QUIZ PRE-GENERATION COLUMNS ON COURSES
+-- ------------------------------------------------------------------------------
+ALTER TABLE courses 
+ADD COLUMN IF NOT EXISTS ai_cheatsheet TEXT,
+ADD COLUMN IF NOT EXISTS ai_quiz JSONB;
+

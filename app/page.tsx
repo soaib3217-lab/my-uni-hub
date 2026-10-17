@@ -9,13 +9,18 @@ import {
     Minimize2, Loader2, GraduationCap, Menu, Search, FolderPlus,
     File, User, Lightbulb, Grid, Home as HomeIcon, MoreVertical, ExternalLink,
     Download, ArrowLeft, BarChart2, Users, Activity, Eye, Clock, RefreshCw,
-    Fingerprint, ShieldCheck, ShieldAlert, KeyRound, LogIn, Github
+    LogIn, Github,
+    Star, Share2, Calculator, BookOpen, Check
 } from 'lucide-react';
 
 import ReactMarkdown from 'react-markdown';
 import remarkMath from 'remark-math';
 import rehypeKatex from 'rehype-katex';
 import 'katex/dist/katex.min.css';
+
+import GpaCalculatorModal from '@/components/GpaCalculatorModal';
+import QuizModal from '@/components/QuizModal';
+import CheatSheetModal from '@/components/CheatSheetModal';
 
 // --- CONFIGURATION ---
 const supabase = createClient(
@@ -283,6 +288,150 @@ export default function Home() {
     const [isUploading, setIsUploading] = useState(false);
     const [uploadProgress, setUploadProgress] = useState(0);
 
+    // 🔖 Bookmarks & Recently Viewed States
+    const [bookmarks, setBookmarks] = useState<string[]>([]);
+    const [recentFileIds, setRecentFileIds] = useState<string[]>([]);
+    const [libraryFilter, setLibraryFilter] = useState<'all' | 'bookmarks' | 'recent'>('all');
+
+    // 🚀 New AI & Academic Modals
+    const [showGpaModal, setShowGpaModal] = useState(false);
+    const [showQuizModal, setShowQuizModal] = useState(false);
+    const [showCheatSheetModal, setShowCheatSheetModal] = useState(false);
+    const [shareCopied, setShareCopied] = useState(false);
+
+    // 👥 Admin Student Roster Management States
+    const [adminActiveTab, setAdminActiveTab] = useState<'analytics' | 'roster'>('analytics');
+    const [newStudentForm, setNewStudentForm] = useState({ id: '', name: '', email: '' });
+    const [batchCsvText, setBatchCsvText] = useState('');
+    const [isRosterLoading, setIsRosterLoading] = useState(false);
+
+    // 💾 Initialize Bookmarks & Recent Files
+    useEffect(() => {
+        if (typeof window !== 'undefined') {
+            try {
+                const savedBookmarks = localStorage.getItem('statnotes_bookmarks');
+                if (savedBookmarks) setBookmarks(JSON.parse(savedBookmarks));
+                const savedRecents = localStorage.getItem('statnotes_recent_files');
+                if (savedRecents) setRecentFileIds(JSON.parse(savedRecents));
+            } catch (e) {
+                console.error("Storage load error:", e);
+            }
+        }
+    }, []);
+
+    const toggleBookmark = (fileId: string) => {
+        setBookmarks(prev => {
+            const next = prev.includes(fileId) ? prev.filter(id => id !== fileId) : [...prev, fileId];
+            if (typeof window !== 'undefined') {
+                localStorage.setItem('statnotes_bookmarks', JSON.stringify(next));
+            }
+            return next;
+        });
+    };
+
+    const handleCopyShareLink = (fileId: string) => {
+        if (typeof window === 'undefined') return;
+        const url = `${window.location.origin}${window.location.pathname}?file=${fileId}`;
+        navigator.clipboard.writeText(url);
+        setShareCopied(true);
+        setTimeout(() => setShareCopied(false), 2000);
+    };
+
+    // 👥 Admin Roster Handlers
+    async function handleAddSingleStudent() {
+        if (!newStudentForm.id.trim()) {
+            alert("Student ID is required.");
+            return;
+        }
+        setIsRosterLoading(true);
+        try {
+            const res = await fetch('/api/admin/students', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    id: newStudentForm.id,
+                    name: newStudentForm.name || 'Student',
+                    email: newStudentForm.email || null
+                })
+            });
+            const data = await res.json();
+            if (data.success) {
+                alert(data.message || "Student added successfully!");
+                setNewStudentForm({ id: '', name: '', email: '' });
+                fetchTrafficAnalytics();
+            } else {
+                alert(data.error || "Failed to add student.");
+            }
+        } catch (err: any) {
+            alert(err.message || "Network error adding student.");
+        } finally {
+            setIsRosterLoading(false);
+        }
+    }
+
+    async function handleBatchImportStudents() {
+        if (!batchCsvText.trim()) {
+            alert("Please paste CSV lines to import.");
+            return;
+        }
+        setIsRosterLoading(true);
+        try {
+            const lines = batchCsvText.trim().split('\n');
+            const parsed = lines.map(line => {
+                const parts = line.split(',').map(p => p.trim().replace(/^["']|["']$/g, ''));
+                return {
+                    id: parts[0] || '',
+                    name: parts[1] || 'Student',
+                    email: parts[2] || null
+                };
+            }).filter(s => Boolean(s.id));
+
+            if (!parsed.length) {
+                alert("No valid student IDs found in input.");
+                setIsRosterLoading(false);
+                return;
+            }
+
+            const res = await fetch('/api/admin/students', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ students: parsed })
+            });
+            const data = await res.json();
+            if (data.success) {
+                alert(data.message || `Imported ${parsed.length} students!`);
+                setBatchCsvText('');
+                fetchTrafficAnalytics();
+            } else {
+                alert(data.error || "Failed to import students.");
+            }
+        } catch (err: any) {
+            alert(err.message || "Network error importing students.");
+        } finally {
+            setIsRosterLoading(false);
+        }
+    }
+
+    async function handleDeleteStudent(studentId: string) {
+        if (!confirm(`Are you sure you want to remove student ID ${studentId} from the database?`)) return;
+        setIsRosterLoading(true);
+        try {
+            const res = await fetch(`/api/admin/students?id=${encodeURIComponent(studentId)}`, {
+                method: 'DELETE'
+            });
+            const data = await res.json();
+            if (data.success) {
+                fetchTrafficAnalytics();
+            } else {
+                alert(data.error || "Failed to delete student.");
+            }
+        } catch (err: any) {
+            alert(err.message || "Network error deleting student.");
+        } finally {
+            setIsRosterLoading(false);
+        }
+    }
+
     // 🚦 Traffic Session Tracker: Tracks website open per browser session
     async function recordTrafficSession(user: any) {
         if (!user || user.role === 'admin' || !user.id) return;
@@ -355,45 +504,45 @@ export default function Home() {
     }
 
     useEffect(() => {
+        try {
+            const saved = localStorage.getItem('statnotes_user');
+            if (saved) {
+                setCurrentUser(JSON.parse(saved));
+            }
+        } catch {}
         fetchData();
         attemptAutoLogin();
     }, []);
 
     async function attemptAutoLogin() {
         setAutoLoginStatus('processing');
-        if (typeof window !== 'undefined') {
-            localStorage.removeItem('statnotes_saved_id');
-        }
-        const startTime = Date.now();
         try {
             const res = await fetch('/api/auth/me');
             const data = await res.json();
 
-            // Smooth minimum animation duration (850ms) for high-tech biometric scan effect
-            const elapsed = Date.now() - startTime;
-            if (elapsed < 850) {
-                await new Promise(r => setTimeout(r, 850 - elapsed));
-            }
-
             if (data.success && data.user) {
                 setCurrentUser(data.user);
+                try {
+                    localStorage.setItem('statnotes_user', JSON.stringify(data.user));
+                } catch {}
                 recordTrafficSession(data.user);
                 setAutoLoginStatus('success');
+                setShowAdminModal(false);
                 setTimeout(() => {
                     setAutoLoginStatus('idle');
-                }, 1000);
+                }, 800);
             } else {
+                try {
+                    localStorage.removeItem('statnotes_user');
+                } catch {}
+                setCurrentUser(null);
                 setAutoLoginStatus('failed');
-                setAutoLoginMessage("No active session found or session has expired. Please log in with your Student ID and Password.");
+                setAutoLoginMessage("No active session found or session has expired.");
             }
         } catch (e) {
             console.error("Auto login error:", e);
-            const elapsed = Date.now() - startTime;
-            if (elapsed < 850) {
-                await new Promise(r => setTimeout(r, 850 - elapsed));
-            }
             setAutoLoginStatus('failed');
-            setAutoLoginMessage("Unable to verify session. Please log in with your Student ID and Password.");
+            setAutoLoginMessage("Unable to verify session.");
         }
     }
 
@@ -404,10 +553,6 @@ export default function Home() {
             localStorage.removeItem('statnotes_saved_id');
         }
         setShowAdminModal(true);
-    }
-
-    function openLoginWithIdPassword() {
-        openLoginModal('login');
     }
 
     useEffect(() => {
@@ -425,9 +570,18 @@ export default function Home() {
                 setSelectedFile(null);
                 setIsAiOpen(false);
                 setIsHeaderMenuOpen(false);
+                setShowCheatSheetModal(false);
+                setShowQuizModal(false);
             } else if (event.state?.fileViewer && event.state?.fileId) {
+                if (!currentUser) {
+                    setSelectedFile(null);
+                    openLoginModal('login');
+                    return;
+                }
                 const targetFile = files.find(f => f.id === event.state.fileId);
                 if (targetFile) {
+                    setShowCheatSheetModal(false);
+                    setShowQuizModal(false);
                     setSelectedFile(targetFile);
                 }
             }
@@ -435,7 +589,7 @@ export default function Home() {
 
         window.addEventListener('popstate', handlePopState);
         return () => window.removeEventListener('popstate', handlePopState);
-    }, [files]);
+    }, [files, currentUser]);
 
     useEffect(() => {
         if (selectedFile) {
@@ -443,11 +597,22 @@ export default function Home() {
             setChatHistory([]);
             setSuggestedQuestions([]);
             setIsHeaderMenuOpen(false);
+            setShowCheatSheetModal(false);
+            setShowQuizModal(false);
         } else {
             setIsAiOpen(false);
             setIsHeaderMenuOpen(false);
+            setShowCheatSheetModal(false);
+            setShowQuizModal(false);
         }
     }, [selectedFile]);
+
+    // 🔒 Stop Guest Read: ensure guests cannot view PDF documents if logged out
+    useEffect(() => {
+        if (!currentUser && selectedFile) {
+            setSelectedFile(null);
+        }
+    }, [currentUser, selectedFile]);
 
     // --- 🔒 SECURE AI CALLS ---
     async function generateSuggestions(title: string) {
@@ -551,6 +716,9 @@ export default function Home() {
             if (data.success) {
                 if (authMode === 'login' || authMode === 'register') {
                     setCurrentUser(data.user);
+                    try {
+                        localStorage.setItem('statnotes_user', JSON.stringify(data.user));
+                    } catch {}
                     recordTrafficSession(data.user);
                     setAutoLoginStatus('idle');
                     setShowAdminModal(false);
@@ -576,7 +744,13 @@ export default function Home() {
     async function handleLogout() {
         if (confirm("Terminate Session?")) {
             await fetch('/api/auth/logout', { method: 'POST' });
+            try {
+                localStorage.removeItem('statnotes_user');
+            } catch {}
             setCurrentUser(null);
+            setSelectedFile(null);
+            setShowCheatSheetModal(false);
+            setShowQuizModal(false);
             setAutoLoginStatus('idle');
         }
     }
@@ -884,11 +1058,29 @@ export default function Home() {
     };
 
     const handleSelectFile = (file: any) => {
+        // 🔒 Stop Guest Read: students must login to view/read PDFs
+        if (!currentUser) {
+            openLoginModal('login');
+            return;
+        }
+        setShowCheatSheetModal(false);
+        setShowQuizModal(false);
         setIframeLoading(true);
-        if (!selectedFile) {
-            window.history.pushState({ fileViewer: true, fileId: file.id }, '', '#view');
-        } else {
-            window.history.replaceState({ fileViewer: true, fileId: file.id }, '', '#view');
+        if (typeof window !== 'undefined') {
+            const url = new URL(window.location.href);
+            url.searchParams.set('file', file.id);
+            window.history.pushState({ fileViewer: true, fileId: file.id }, '', url.toString());
+
+            // Track recent files
+            setRecentFileIds(prev => {
+                const next = [file.id, ...prev.filter(id => id !== file.id)].slice(0, 8);
+                try {
+                    localStorage.setItem('statnotes_recent_files', JSON.stringify(next));
+                } catch {
+                    // ignore localStorage errors
+                }
+                return next;
+            });
         }
         setSelectedFile(file);
         setIsMobileMenuOpen(false);
@@ -898,11 +1090,48 @@ export default function Home() {
         setSelectedFile(null);
         setIsAiOpen(false);
         setIsHeaderMenuOpen(false);
+        setShowCheatSheetModal(false);
+        setShowQuizModal(false);
         setSearchTerm("");
-        if (window.history.state?.fileViewer || window.location.hash === '#view') {
-            window.history.back();
+        if (typeof window !== 'undefined') {
+            const url = new URL(window.location.href);
+            url.searchParams.delete('file');
+            window.history.pushState(null, '', url.pathname + (url.search ? url.search : ''));
         }
     };
+
+    // 🔗 URL Deep Linking Effect: Auto-open file from ?file=id query parameter
+    useEffect(() => {
+        // Wait until auto-login check completes so we don't prematurely open login modal on refresh!
+        if (autoLoginStatus === 'processing') return;
+
+        if (files.length > 0 && typeof window !== 'undefined') {
+            const params = new URLSearchParams(window.location.search);
+            const fileParam = params.get('file');
+            if (fileParam && (!selectedFile || selectedFile.id !== fileParam)) {
+                // 🔒 Stop Guest Read: prompt login if deep link opened as guest and auto-login has completed
+                if (!currentUser) {
+                    openLoginModal('login');
+                    return;
+                }
+                setShowCheatSheetModal(false);
+                setShowQuizModal(false);
+                const match = files.find(f => f.id === fileParam);
+                if (match) {
+                    setSelectedFile(match);
+                    if (match.year && !expandedYears.includes(match.year)) {
+                        setExpandedYears(prev => [...prev, match.year]);
+                    }
+                    if (match.semester && !expandedSemesters.includes(match.semester)) {
+                        setExpandedSemesters(prev => [...prev, match.semester]);
+                    }
+                    if (match.course_code && !expandedCourses.includes(match.course_code)) {
+                        setExpandedCourses(prev => [...prev, match.course_code]);
+                    }
+                }
+            }
+        }
+    }, [files, currentUser, autoLoginStatus, selectedFile, expandedYears, expandedSemesters, expandedCourses]);
 
     const structure = ["Year 1", "Year 2", "Year 3", "Year 4"].map(year => ({
         year,
@@ -913,7 +1142,20 @@ export default function Home() {
     }));
 
     const CATEGORIES = ["Course Materials", "Hand Notes", "Previous Year Question Solve"];
-    const dashboardFiles = files.filter(f => f.title.toLowerCase().includes(searchTerm));
+
+    const recentFilesList = useMemo(() => {
+        return recentFileIds.map(id => files.find(f => f.id === id)).filter(Boolean);
+    }, [recentFileIds, files]);
+
+    const dashboardFiles = useMemo(() => {
+        return files.filter(f => {
+            const matchesSearch = f.title.toLowerCase().includes(searchTerm) || (f.course_code && f.course_code.toLowerCase().includes(searchTerm));
+            if (!matchesSearch) return false;
+            if (libraryFilter === 'bookmarks') return bookmarks.includes(f.id);
+            if (libraryFilter === 'recent') return recentFileIds.includes(f.id);
+            return true;
+        });
+    }, [files, searchTerm, libraryFilter, bookmarks, recentFileIds]);
 
     return (
         <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.5, ease: "easeOut" }} className="flex h-[100dvh] bg-transparent text-gray-100 font-sans overflow-hidden relative">
@@ -993,7 +1235,24 @@ export default function Home() {
                 </div>
 
                 <div className="flex-1 overflow-y-auto p-3 space-y-1 custom-scrollbar pb-20" style={{ transform: 'translateZ(0)', willChange: 'transform' }}>
-                    {currentUser ? structure.map((yData) => (
+                    {!currentUser && (
+                        <div className="p-3 mb-3 rounded-2xl bg-cyan-500/10 border border-cyan-500/30 flex items-center justify-between gap-2 shadow-[0_0_15px_rgba(6,182,212,0.1)]">
+                            <div className="flex items-center gap-2">
+                                <span className="w-2 h-2 rounded-full bg-cyan-400 animate-ping" />
+                                <div className="leading-tight">
+                                    <p className="text-[11px] font-mono font-bold text-cyan-200">Catalog Preview</p>
+                                    <p className="text-[9px] text-gray-400">Login to Read Documents</p>
+                                </div>
+                            </div>
+                            <button
+                                onClick={() => openLoginModal('login')}
+                                className="px-2.5 py-1 rounded-lg bg-cyan-500/20 hover:bg-cyan-500/30 text-cyan-300 border border-cyan-500/40 text-[10px] font-mono uppercase font-bold transition-all"
+                            >
+                                Sign In
+                            </button>
+                        </div>
+                    )}
+                    {structure.map((yData) => (
                         <div key={yData.year}>
                             <button onClick={() => toggleState(setExpandedYears, yData.year)} className="w-full flex items-center gap-3 p-2 hover:bg-white/5 rounded-lg text-sm font-semibold transition-colors group">
                                 {expandedYears.includes(yData.year) ? <ChevronDown size={14} className="text-cyan-500 group-hover:text-cyan-400" /> : <ChevronRight size={14} className="text-gray-500 group-hover:text-cyan-400" />}
@@ -1059,6 +1318,11 @@ export default function Home() {
                                                                                                     <button onClick={() => handleSelectFile(file)} className={`w-full text-left flex items-center gap-2 p-2 rounded text-[11px] border transition-colors ${selectedFile?.id === file.id ? 'bg-white/10 text-white border-white/20 shadow-sm' : (searchTerm && file.title.toLowerCase().includes(searchTerm) ? 'bg-cyan-500/10 text-cyan-200 border-cyan-500/30 font-medium' : isNew ? 'bg-cyan-500/5 text-gray-200 border-cyan-500/30 hover:bg-cyan-500/10' : 'hover:bg-white/5 text-gray-400 border-transparent bg-transparent hover:text-gray-200')}`}>
                                                                                                         <FileText size={12} className={selectedFile?.id === file.id ? "text-cyan-300" : (searchTerm && file.title.toLowerCase().includes(searchTerm) || isNew ? "text-cyan-400" : "")} />
                                                                                                         <span className="truncate flex-1"><HighlightText text={file.title} highlight={searchTerm} /></span>
+                                                                                                        {!currentUser && (
+                                                                                                            <span title="Login required to read" className="inline-flex items-center shrink-0">
+                                                                                                                <Lock size={10} className="text-amber-400/70" />
+                                                                                                            </span>
+                                                                                                        )}
                                                                                                         {isNew && (
                                                                                                             <span className="shrink-0 text-[8px] font-mono font-bold px-1.5 py-0.5 rounded-full bg-cyan-400/20 text-cyan-300 border border-cyan-400/50 shadow-[0_0_8px_rgba(6,182,212,0.4)] tracking-wider uppercase flex items-center gap-1" title="Uploaded within the last 72 hours">
                                                                                                                 <span className="w-1 h-1 rounded-full bg-cyan-300 animate-ping"></span>
@@ -1090,31 +1354,31 @@ export default function Home() {
                                 )}
                             </AnimatePresence>
                         </div>
-                    )) : (
-                        <div className="h-full flex flex-col items-center justify-center opacity-60 p-4 text-center">
-                            {autoLoginStatus === 'processing' ? (
-                                <>
-                                    <Loader2 size={24} className="mb-2 text-cyan-400 animate-spin" />
-                                    <p className="text-[10px] font-mono text-cyan-400 uppercase tracking-widest mt-1">Authenticating...</p>
-                                </>
-                            ) : (
-                                <>
-                                    <Lock size={32} className="mb-2 text-cyan-500" />
-                                    <p className="text-xs font-mono text-cyan-400 uppercase tracking-widest mt-2">Login Required</p>
-                                </>
-                            )}
-                        </div>
-                    )}
+                    ))}
                 </div>
 
-                <div className="p-4 border-t border-white/5 bg-[#0d0d10]/50 flex gap-2 relative">
+                <div className="p-3.5 border-t border-white/10 bg-[#0d0d10]/70 flex items-center gap-2 relative">
                     {!currentUser ? (
                         <>
                             <button
                                 onClick={() => openLoginModal('login')}
-                                className="flex-1 bg-white/5 hover:bg-white/10 text-cyan-400/80 hover:text-cyan-300 rounded-lg flex items-center justify-center gap-2 py-2.5 text-xs font-bold border border-white/10 transition uppercase tracking-widest"
+                                className="flex-1 bg-cyan-500/20 hover:bg-cyan-500/30 text-cyan-300 rounded-xl flex items-center justify-center gap-2 py-2 text-xs font-bold border border-cyan-500/40 transition uppercase tracking-wider shadow-[0_0_15px_rgba(6,182,212,0.2)]"
                             >
-                                <Unlock size={14} /> Login
+                                <Unlock size={14} /> Student Login
+                            </button>
+                            <button
+                                onClick={() => setShowGpaModal(true)}
+                                title="Semester GPA & CGPA Calculator"
+                                className="p-2.5 rounded-xl transition text-cyan-400 hover:text-cyan-300 hover:bg-white/5 border border-white/10 bg-[#121216]"
+                            >
+                                <Calculator size={15} />
+                            </button>
+                            <button
+                                onClick={() => setShowCoverGenerator(true)}
+                                title="Cover Page Generator"
+                                className="p-2.5 rounded-xl transition text-amber-400 hover:text-amber-300 hover:bg-white/5 border border-white/10 bg-[#121216]"
+                            >
+                                <FileText size={15} />
                             </button>
                         </>
                     ) : (
@@ -1122,29 +1386,36 @@ export default function Home() {
                             <button
                                 onClick={handleLogout}
                                 title="Logout"
-                                className="p-2 rounded-lg transition text-fuchsia-400/80 hover:text-fuchsia-300 hover:bg-white/5 border border-transparent hover:border-white/10 bg-[#121216]"
+                                className="p-2 rounded-xl transition text-fuchsia-400 hover:text-fuchsia-300 hover:bg-white/5 border border-transparent hover:border-white/10 bg-[#121216]"
                             >
-                                <Lock size={16} />
+                                <Lock size={15} />
                             </button>
                             {currentUser?.role === 'admin' && (
                                 <button
                                     onClick={() => { setShowTrafficModal(true); fetchTrafficAnalytics(); }}
-                                    title="Account Traffic & Analytics"
-                                    className="p-2 rounded-lg transition text-emerald-400 hover:text-emerald-300 hover:bg-emerald-500/10 border border-emerald-500/20 bg-[#121216]"
+                                    title="Account Traffic, Analytics & Student Roster"
+                                    className="p-2 rounded-xl transition text-emerald-400 hover:text-emerald-300 hover:bg-emerald-500/10 border border-emerald-500/20 bg-[#121216]"
                                 >
-                                    <BarChart2 size={16} />
+                                    <BarChart2 size={15} />
                                 </button>
                             )}
                             <button
-                                onClick={() => setShowCoverGenerator(true)}
-                                title="Cover Generator"
-                                className="p-2 rounded-lg transition text-cyan-400/80 hover:text-cyan-300 hover:bg-white/5 border border-transparent hover:border-white/10 bg-[#121216]"
+                                onClick={() => setShowGpaModal(true)}
+                                title="Semester GPA & CGPA Calculator"
+                                className="p-2 rounded-xl transition text-cyan-400 hover:text-cyan-300 hover:bg-white/5 border border-transparent hover:border-white/10 bg-[#121216]"
                             >
-                                <FileText size={16} />
+                                <Calculator size={15} />
                             </button>
-                            <div className="flex-1 flex gap-2">
-                                <button onClick={() => setShowAddFolderModal(true)} className="flex-1 bg-white/5 hover:bg-white/10 text-cyan-300/80 rounded-lg flex items-center justify-center gap-1 text-[10px] font-bold border border-white/10 transition uppercase"><FolderPlus size={14} /> Folder</button>
-                                <button onClick={() => setShowAddFileModal(true)} className="flex-1 bg-white/10 hover:bg-white/20 text-white rounded-lg flex items-center justify-center gap-1 text-[10px] font-bold border border-white/20 transition uppercase"><Plus size={14} /> File</button>
+                            <button
+                                onClick={() => setShowCoverGenerator(true)}
+                                title="Cover Page Generator"
+                                className="p-2 rounded-xl transition text-amber-400 hover:text-amber-300 hover:bg-white/5 border border-transparent hover:border-white/10 bg-[#121216]"
+                            >
+                                <FileText size={15} />
+                            </button>
+                            <div className="flex-1 flex gap-1.5">
+                                <button onClick={() => setShowAddFolderModal(true)} className="flex-1 bg-white/5 hover:bg-white/10 text-cyan-300 rounded-xl flex items-center justify-center gap-1 text-[10px] font-bold border border-white/10 transition uppercase py-2"><FolderPlus size={13} /> Folder</button>
+                                <button onClick={() => setShowAddFileModal(true)} className="flex-1 bg-cyan-500/20 hover:bg-cyan-500/30 text-white rounded-xl flex items-center justify-center gap-1 text-[10px] font-bold border border-cyan-500/40 transition uppercase py-2"><Plus size={13} /> File</button>
                             </div>
                         </>
                     )}
@@ -1170,7 +1441,31 @@ export default function Home() {
                     </div>
                 )}
 
-                {selectedFile ? (
+                {selectedFile && !currentUser ? (
+                    <div className="flex-1 flex flex-col items-center justify-center p-6 text-center m-4 bg-[#0a0a0c]/90 backdrop-blur-xl border border-white/10 rounded-2xl shadow-2xl">
+                        <div className="w-16 h-16 rounded-2xl bg-amber-500/10 border border-amber-500/30 flex items-center justify-center mb-4 text-amber-400 shadow-[0_0_20px_rgba(245,158,11,0.25)]">
+                            <Lock size={30} />
+                        </div>
+                        <h2 className="text-xl font-bold text-white mb-2">Student Authentication Required</h2>
+                        <p className="text-xs text-gray-400 max-w-sm font-mono mb-6 leading-relaxed">
+                            Guest read access is restricted. Please sign in with your Student ID to read and view <span className="text-cyan-300 font-bold">{selectedFile.title}</span>.
+                        </p>
+                        <div className="flex items-center gap-3">
+                            <button
+                                onClick={() => openLoginModal('login')}
+                                className="px-6 py-2.5 rounded-xl bg-cyan-500 hover:bg-cyan-400 text-black font-bold uppercase text-xs tracking-wider transition-all shadow-[0_0_20px_rgba(6,182,212,0.4)]"
+                            >
+                                Sign In to Read
+                            </button>
+                            <button
+                                onClick={handleGoHome}
+                                className="px-5 py-2.5 rounded-xl bg-white/5 hover:bg-white/10 text-gray-300 border border-white/10 text-xs font-mono uppercase transition-all"
+                            >
+                                Back to Catalog
+                            </button>
+                        </div>
+                    </div>
+                ) : selectedFile ? (
                     <div className="flex-1 flex flex-col md:flex-row overflow-hidden p-0 md:p-4 gap-4 relative">
                         {/* PDF Viewer Area */}
                         <motion.div 
@@ -1200,23 +1495,89 @@ export default function Home() {
 
                                 {/* Desktop Actions */}
                                 <div className="hidden md:flex items-center gap-2 ml-2">
-                                    <a
-                                        href={getDirectDownloadUrl(selectedFile.pdf_url)}
-                                        download={selectedFile.title}
-                                        target="_blank"
-                                        rel="noopener noreferrer"
-                                        className="inline-flex items-center gap-1.5 text-[11px] font-bold whitespace-nowrap border border-cyan-500/40 bg-cyan-500/10 hover:bg-cyan-500/25 text-cyan-200 hover:text-white px-3.5 py-2 rounded-xl transition-all tracking-wide shadow-[0_0_15px_rgba(6,182,212,0.15)] hover:shadow-[0_0_20px_rgba(6,182,212,0.3)] active:scale-95"
-                                        title="Direct Download File"
+                                    <button
+                                        onClick={() => toggleBookmark(selectedFile.id)}
+                                        className={`inline-flex items-center gap-1.5 text-[11px] font-bold whitespace-nowrap border px-3 py-2 rounded-xl transition tracking-wide shadow-sm active:scale-95 ${
+                                            bookmarks.includes(selectedFile.id)
+                                                ? 'border-amber-500/50 bg-amber-500/15 text-amber-300 shadow-[0_0_15px_rgba(245,158,11,0.2)]'
+                                                : 'border-white/20 bg-white/5 hover:bg-white/10 text-gray-300'
+                                        }`}
+                                        title={bookmarks.includes(selectedFile.id) ? "Remove from bookmarks" : "Star / Bookmark Note"}
                                     >
-                                        <Download size={14} className="text-cyan-400" />
+                                        <Star size={13} className={bookmarks.includes(selectedFile.id) ? "fill-amber-400 text-amber-400" : ""} />
+                                        <span>{bookmarks.includes(selectedFile.id) ? 'SAVED' : 'STAR'}</span>
+                                    </button>
+
+                                    <button
+                                        onClick={() => handleCopyShareLink(selectedFile.id)}
+                                        className="inline-flex items-center gap-1.5 text-[11px] font-bold whitespace-nowrap border border-white/20 bg-white/5 hover:bg-white/10 text-gray-200 px-3 py-2 rounded-xl transition tracking-wide shadow-sm active:scale-95"
+                                        title="Copy Direct Share Link"
+                                    >
+                                        {shareCopied ? <Check size={13} className="text-emerald-400" /> : <Share2 size={13} className="text-cyan-400" />}
+                                        <span>{shareCopied ? 'COPIED!' : 'SHARE'}</span>
+                                    </button>
+
+                                    <button
+                                        onClick={() => setShowCheatSheetModal(true)}
+                                        className="inline-flex items-center gap-1.5 text-[11px] font-bold whitespace-nowrap border border-amber-500/40 bg-amber-500/10 hover:bg-amber-500/25 text-amber-300 px-3 py-2 rounded-xl transition tracking-wide shadow-[0_0_15px_rgba(245,158,11,0.15)] active:scale-95"
+                                        title="Generate 1-Page Exam Cheat Sheet with Gemini"
+                                    >
+                                        <BookOpen size={13} className="text-amber-400" />
+                                        <span>CHEAT SHEET</span>
+                                    </button>
+
+                                    <button
+                                        onClick={() => setShowQuizModal(true)}
+                                        className="inline-flex items-center gap-1.5 text-[11px] font-bold whitespace-nowrap border border-emerald-500/40 bg-emerald-500/10 hover:bg-emerald-500/25 text-emerald-300 px-3 py-2 rounded-xl transition tracking-wide shadow-[0_0_15px_rgba(16,185,129,0.15)] active:scale-95"
+                                        title="Generate 5-Question AI Practice Quiz with Gemini"
+                                    >
+                                        <Sparkles size={13} className="text-emerald-400" />
+                                        <span>QUIZ ME</span>
+                                    </button>
+
+                                    <button
+                                        onClick={() => setIsAiOpen(!isAiOpen)}
+                                        className={`inline-flex items-center gap-1.5 text-[11px] font-bold whitespace-nowrap border px-3 py-2 rounded-xl transition tracking-wide shadow-sm active:scale-95 ${
+                                            isAiOpen
+                                                ? 'border-fuchsia-500/50 bg-fuchsia-500/20 text-fuchsia-200 shadow-[0_0_15px_rgba(217,70,239,0.3)]'
+                                                : 'border-fuchsia-500/40 bg-fuchsia-500/10 hover:bg-fuchsia-500/20 text-fuchsia-300'
+                                        }`}
+                                        title="Toggle AI Tutor"
+                                    >
+                                        <MessageSquare size={13} className="text-fuchsia-400" />
+                                        <span>AI TUTOR</span>
+                                    </button>
+
+                                    <a
+                                        href={currentUser ? getDirectDownloadUrl(selectedFile.pdf_url) : '#'}
+                                        download={currentUser ? selectedFile.title : undefined}
+                                        target={currentUser ? "_blank" : undefined}
+                                        rel="noopener noreferrer"
+                                        onClick={(e) => {
+                                            if (!currentUser) {
+                                                e.preventDefault();
+                                                openLoginModal('login');
+                                            }
+                                        }}
+                                        className="inline-flex items-center gap-1.5 text-[11px] font-bold whitespace-nowrap border border-cyan-500/40 bg-cyan-500/10 hover:bg-cyan-500/25 text-cyan-200 hover:text-white px-3 py-2 rounded-xl transition-all tracking-wide shadow-[0_0_15px_rgba(6,182,212,0.15)] hover:shadow-[0_0_20px_rgba(6,182,212,0.3)] active:scale-95"
+                                        title={currentUser ? "Direct Download File" : "Login to Download"}
+                                    >
+                                        <Download size={13} className="text-cyan-400" />
                                         <span>DOWNLOAD</span>
                                     </a>
+
                                     <a
-                                        href={selectedFile.pdf_url}
-                                        target="_blank"
+                                        href={currentUser ? selectedFile.pdf_url : '#'}
+                                        target={currentUser ? "_blank" : undefined}
                                         rel="noopener noreferrer"
-                                        className="inline-flex items-center gap-1.5 text-[11px] text-white font-bold whitespace-nowrap border border-white/20 bg-white/5 hover:bg-white/10 px-3.5 py-2 rounded-xl transition tracking-wide shadow-sm"
-                                        title="Open in External Tab"
+                                        onClick={(e) => {
+                                            if (!currentUser) {
+                                                e.preventDefault();
+                                                openLoginModal('login');
+                                            }
+                                        }}
+                                        className="inline-flex items-center gap-1.5 text-[11px] text-white font-bold whitespace-nowrap border border-white/20 bg-white/5 hover:bg-white/10 px-3 py-2 rounded-xl transition tracking-wide shadow-sm"
+                                        title={currentUser ? "Open in External Tab" : "Login to Open External Tab"}
                                     >
                                         <ExternalLink size={13} className="text-gray-400" />
                                         <span>EXTERNAL</span>
@@ -1225,16 +1586,42 @@ export default function Home() {
 
                                 {/* Mobile Actions */}
                                 <div className="flex md:hidden items-center gap-1">
+                                    <button
+                                        onClick={() => toggleBookmark(selectedFile.id)}
+                                        className={`p-2 rounded-xl border transition-all ${
+                                            bookmarks.includes(selectedFile.id)
+                                                ? 'bg-amber-500/20 border-amber-500/40 text-amber-300'
+                                                : 'bg-white/5 border-white/10 text-gray-400'
+                                        }`}
+                                        title="Bookmark"
+                                    >
+                                        <Star size={16} className={bookmarks.includes(selectedFile.id) ? "fill-amber-400" : ""} />
+                                    </button>
+
+                                    <button
+                                        onClick={() => handleCopyShareLink(selectedFile.id)}
+                                        className="p-2 rounded-xl bg-white/5 border border-white/10 text-cyan-400 hover:text-white transition-all"
+                                        title="Share Link"
+                                    >
+                                        {shareCopied ? <Check size={16} className="text-emerald-400" /> : <Share2 size={16} />}
+                                    </button>
+
                                     <a
-                                        href={getDirectDownloadUrl(selectedFile.pdf_url)}
-                                        download={selectedFile.title}
-                                        target="_blank"
+                                        href={currentUser ? getDirectDownloadUrl(selectedFile.pdf_url) : '#'}
+                                        download={currentUser ? selectedFile.title : undefined}
+                                        target={currentUser ? "_blank" : undefined}
                                         rel="noopener noreferrer"
+                                        onClick={(e) => {
+                                            if (!currentUser) {
+                                                e.preventDefault();
+                                                openLoginModal('login');
+                                            }
+                                        }}
                                         className="p-2 text-cyan-300 hover:text-white bg-cyan-500/10 hover:bg-cyan-500/20 border border-cyan-500/30 rounded-xl transition-all shadow-[0_0_12px_rgba(6,182,212,0.15)] flex items-center justify-center shrink-0"
                                         title="Direct Download"
                                         aria-label="Direct Download"
                                     >
-                                        <Download size={18} className="text-cyan-400" />
+                                        <Download size={16} className="text-cyan-400" />
                                     </a>
 
                                     {/* Mobile 3-Dot Menu */}
@@ -1254,22 +1641,63 @@ export default function Home() {
                                                     animate={{ opacity: 1, scale: 1, y: 0 }}
                                                     exit={{ opacity: 0, scale: 0.95, y: -10 }}
                                                     transition={{ duration: 0.15 }}
-                                                    className="absolute right-0 top-full mt-2 w-52 bg-[#0a0a0c]/95 backdrop-blur-xl border border-white/10 rounded-xl shadow-[0_8px_32px_rgba(0,0,0,0.5)] z-50 overflow-hidden"
+                                                    className="absolute right-0 top-full mt-2 w-56 bg-[#0a0a0c]/98 backdrop-blur-xl border border-white/10 rounded-2xl shadow-[0_8px_32px_rgba(0,0,0,0.6)] z-50 overflow-hidden"
                                                 >
                                                     <div className="absolute top-0 left-0 w-full h-[1px] bg-gradient-to-r from-transparent via-cyan-400/30 to-transparent"></div>
                                                     <div className="p-1.5 flex flex-col gap-1">
+                                                        <button
+                                                            onClick={() => {
+                                                                setShowCheatSheetModal(true);
+                                                                setIsHeaderMenuOpen(false);
+                                                            }}
+                                                            className="flex items-center gap-2 px-3 py-2 text-xs font-mono uppercase text-amber-300 hover:text-amber-200 hover:bg-amber-500/10 rounded-lg transition-colors text-left w-full font-bold"
+                                                        >
+                                                            <BookOpen size={14} className="text-amber-400" />
+                                                            <span>Exam Cheat Sheet</span>
+                                                        </button>
+
+                                                        <button
+                                                            onClick={() => {
+                                                                setShowQuizModal(true);
+                                                                setIsHeaderMenuOpen(false);
+                                                            }}
+                                                            className="flex items-center gap-2 px-3 py-2 text-xs font-mono uppercase text-emerald-300 hover:text-emerald-200 hover:bg-emerald-500/10 rounded-lg transition-colors text-left w-full font-bold"
+                                                        >
+                                                            <Sparkles size={14} className="text-emerald-400" />
+                                                            <span>Take Practice Quiz</span>
+                                                        </button>
+
+                                                        <button
+                                                            onClick={() => {
+                                                                setIsAiOpen(true);
+                                                                setIsHeaderMenuOpen(false);
+                                                            }}
+                                                            className="flex items-center gap-2 px-3 py-2 text-xs font-mono uppercase text-fuchsia-300 hover:text-fuchsia-200 hover:bg-fuchsia-500/10 rounded-lg transition-colors text-left w-full font-bold"
+                                                        >
+                                                            <MessageSquare size={14} className="text-fuchsia-400" />
+                                                            <span>AI Tutor Assistant</span>
+                                                        </button>
+
+                                                        <div className="h-[1px] bg-white/5 my-0.5"></div>
+
                                                         <a
-                                                            href={getDirectDownloadUrl(selectedFile.pdf_url)}
-                                                            download={selectedFile.title}
-                                                            target="_blank"
+                                                            href={currentUser ? getDirectDownloadUrl(selectedFile.pdf_url) : '#'}
+                                                            download={currentUser ? selectedFile.title : undefined}
+                                                            target={currentUser ? "_blank" : undefined}
                                                             rel="noopener noreferrer"
-                                                            onClick={() => setIsHeaderMenuOpen(false)}
-                                                            className="flex items-center gap-2 px-3 py-2 text-xs font-mono uppercase text-cyan-300 hover:text-cyan-200 hover:bg-cyan-500/10 rounded-lg transition-colors text-left w-full font-bold"
+                                                            onClick={(e) => {
+                                                                setIsHeaderMenuOpen(false);
+                                                                if (!currentUser) {
+                                                                    e.preventDefault();
+                                                                    openLoginModal('login');
+                                                                }
+                                                            }}
+                                                            className="flex items-center gap-2 px-3 py-2 text-xs font-mono uppercase text-cyan-300 hover:text-cyan-200 hover:bg-cyan-500/10 rounded-lg transition-colors text-left w-full"
                                                         >
                                                             <Download size={14} className="text-cyan-400" />
                                                             <span>Direct Download</span>
                                                         </a>
-                                                        <div className="h-[1px] bg-white/5 my-0.5"></div>
+
                                                         <button
                                                             onClick={() => {
                                                                 setIsMobileMenuOpen(true);
@@ -1280,27 +1708,26 @@ export default function Home() {
                                                             <Menu size={14} className="text-cyan-400" />
                                                             <span>Browse Library</span>
                                                         </button>
-                                                        <button
-                                                            onClick={() => {
-                                                                setIsAiOpen(!isAiOpen);
-                                                                setIsHeaderMenuOpen(false);
-                                                            }}
-                                                            className="flex items-center gap-2 px-3 py-2 text-xs font-mono uppercase text-gray-300 hover:text-white hover:bg-white/5 rounded-lg transition-colors text-left w-full"
-                                                        >
-                                                            <MessageSquare size={14} className="text-fuchsia-400" />
-                                                            <span>Tutor AI</span>
-                                                        </button>
+
                                                         <a
-                                                            href={selectedFile.pdf_url}
-                                                            target="_blank"
+                                                            href={currentUser ? selectedFile.pdf_url : '#'}
+                                                            target={currentUser ? "_blank" : undefined}
                                                             rel="noopener noreferrer"
-                                                            onClick={() => setIsHeaderMenuOpen(false)}
+                                                            onClick={(e) => {
+                                                                setIsHeaderMenuOpen(false);
+                                                                if (!currentUser) {
+                                                                    e.preventDefault();
+                                                                    openLoginModal('login');
+                                                                }
+                                                            }}
                                                             className="flex items-center gap-2 px-3 py-2 text-xs font-mono uppercase text-gray-300 hover:text-white hover:bg-white/5 rounded-lg transition-colors text-left w-full"
                                                         >
                                                             <ExternalLink size={14} className="text-cyan-400" />
                                                             <span>External Link</span>
                                                         </a>
+
                                                         <div className="h-[1px] bg-white/5 my-1"></div>
+
                                                         <button
                                                             onClick={() => {
                                                                 handleGoHome();
@@ -1419,7 +1846,33 @@ export default function Home() {
                         <div className="absolute inset-0 bg-[url('https://transparenttextures.com/patterns/cubes.png')] opacity-[0.015] pointer-events-none"></div>
 
                         <div className="flex-1 p-4 md:p-8 overflow-y-auto custom-scrollbar flex flex-col z-10">
-                            {currentUser && searchTerm && (
+                            {/* 🌐 Public Catalog Guest Banner */}
+                            {!currentUser && (
+                                <div className="mb-6 p-4 rounded-2xl bg-white/[0.03] backdrop-blur-xl border border-cyan-500/20 shadow-[0_8px_30px_rgba(0,0,0,0.2)] flex flex-col sm:flex-row items-center justify-between gap-3">
+                                    <div className="flex items-center gap-3">
+                                        <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-cyan-500/20 to-blue-500/20 border border-cyan-500/30 flex items-center justify-center text-cyan-300 shrink-0 shadow-[0_0_15px_rgba(6,182,212,0.15)]">
+                                            <BookOpen size={20} />
+                                        </div>
+                                        <div>
+                                            <div className="flex items-center gap-2">
+                                                <span className="text-xs font-bold text-white tracking-wide">Public Academic Catalog</span>
+                                                <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-cyan-500/10 border border-cyan-500/30 text-cyan-300">Open Access</span>
+                                            </div>
+                                            <p className="text-[11px] text-gray-400 mt-0.5">Browse course notes, question solves, and exams freely. Sign in with your Student ID to save cloud bookmarks & upload materials.</p>
+                                            <p className="text-[11px] text-cyan-300/70 italic mt-1">"{STAT_QUOTES[quoteIndex]}"</p>
+                                        </div>
+                                    </div>
+                                    <button
+                                        onClick={() => openLoginModal('login')}
+                                        className="px-4 py-2 bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-white rounded-xl text-xs font-bold font-mono uppercase tracking-wider transition-all shadow-[0_0_15px_rgba(6,182,212,0.3)] hover:scale-105 shrink-0 flex items-center gap-1.5"
+                                    >
+                                        <LogIn size={13} /> Student Login
+                                    </button>
+                                </div>
+                            )}
+
+                            {/* 🔍 Search Query Active Banner */}
+                            {searchTerm && (
                                 <div className="flex items-center justify-between mb-5 pb-3 border-b border-white/10">
                                     <div className="flex items-center gap-2">
                                         <Search size={14} className="text-cyan-400" />
@@ -1436,10 +1889,93 @@ export default function Home() {
                                 </div>
                             )}
 
-                            {currentUser && dashboardFiles.length > 0 ? (
+                            {/* 🔖 Library Filter Tabs & Catalog Counter */}
+                            <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
+                                <div className="flex items-center gap-1.5 p-1 bg-white/[0.03] backdrop-blur-md border border-white/10 rounded-xl">
+                                    <button
+                                        onClick={() => setLibraryFilter('all')}
+                                        className={`px-3 py-1.5 rounded-lg text-xs font-mono uppercase tracking-wider transition-all ${
+                                            libraryFilter === 'all'
+                                                ? 'bg-cyan-500/20 text-cyan-300 font-bold border border-cyan-500/30 shadow-[0_0_12px_rgba(6,182,212,0.2)]'
+                                                : 'text-gray-400 hover:text-white'
+                                        }`}
+                                    >
+                                        All Resources ({files.length})
+                                    </button>
+                                    <button
+                                        onClick={() => setLibraryFilter('bookmarks')}
+                                        className={`px-3 py-1.5 rounded-lg text-xs font-mono uppercase tracking-wider transition-all flex items-center gap-1.5 ${
+                                            libraryFilter === 'bookmarks'
+                                                ? 'bg-amber-500/20 text-amber-300 font-bold border border-amber-500/30 shadow-[0_0_12px_rgba(245,158,11,0.2)]'
+                                                : 'text-gray-400 hover:text-white'
+                                        }`}
+                                    >
+                                        <Star size={12} className={bookmarks.length > 0 ? "fill-amber-400 text-amber-400" : ""} />
+                                        Bookmarks ({bookmarks.length})
+                                    </button>
+                                    <button
+                                        onClick={() => setLibraryFilter('recent')}
+                                        className={`px-3 py-1.5 rounded-lg text-xs font-mono uppercase tracking-wider transition-all flex items-center gap-1.5 ${
+                                            libraryFilter === 'recent'
+                                                ? 'bg-fuchsia-500/20 text-fuchsia-300 font-bold border border-fuchsia-500/30 shadow-[0_0_12px_rgba(217,70,239,0.2)]'
+                                                : 'text-gray-400 hover:text-white'
+                                        }`}
+                                    >
+                                        <Clock size={12} />
+                                        Recent ({recentFilesList.length})
+                                    </button>
+                                </div>
+
+                                <div className="text-xs font-mono text-gray-400 flex items-center gap-2">
+                                    <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+                                    <span>Catalog: {files.length} Documents</span>
+                                </div>
+                            </div>
+
+                            {/* ⚡ Continue Studying (Recently Viewed Carousel) */}
+                            {recentFilesList.length > 0 && libraryFilter === 'all' && !searchTerm && (
+                                <div className="mb-8">
+                                    <div className="flex items-center justify-between mb-3">
+                                        <h2 className="text-xs font-mono uppercase tracking-widest text-cyan-400 flex items-center gap-2">
+                                            <Clock size={13} /> Continue Studying (Recently Viewed)
+                                        </h2>
+                                        <button
+                                            onClick={() => setLibraryFilter('recent')}
+                                            className="text-[11px] font-mono text-gray-400 hover:text-cyan-300 transition-colors"
+                                        >
+                                            View all ({recentFilesList.length}) →
+                                        </button>
+                                    </div>
+                                    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
+                                        {recentFilesList.slice(0, 4).map((file: any) => (
+                                            <div
+                                                key={`recent-${file.id}`}
+                                                onClick={() => handleSelectFile(file)}
+                                                className="p-3 rounded-xl bg-white/[0.03] hover:bg-white/[0.07] border border-white/10 hover:border-cyan-500/30 transition-all cursor-pointer flex items-center gap-3 group"
+                                            >
+                                                <div className="w-10 h-12 bg-black/40 rounded-lg overflow-hidden shrink-0 border border-white/10">
+                                                    <FileThumbnail url={file.pdf_url} fileTitle={file.title} />
+                                                </div>
+                                                <div className="min-w-0 flex-1">
+                                                    <p className="text-xs font-semibold text-white truncate group-hover:text-cyan-300 transition-colors">{file.title}</p>
+                                                    <p className="text-[10px] text-gray-400 font-mono mt-0.5 truncate">{file.course_code || 'General'}</p>
+                                                </div>
+                                                {!currentUser && (
+                                                    <span title="Login to Read" className="inline-flex items-center shrink-0">
+                                                        <Lock size={12} className="text-amber-400/80" />
+                                                    </span>
+                                                )}
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+                            )}
+
+                            {dashboardFiles.length > 0 ? (
                                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6 mb-8">
-                                    {dashboardFiles.map((file, idx) => {
+                                    {dashboardFiles.map((file) => {
                                         const isNew = isNewUpload(file.created_at);
+                                        const isBookmarked = bookmarks.includes(file.id);
                                         return (
                                         <motion.div 
                                             initial={{ opacity: 0, y: 30 }}
@@ -1465,7 +2001,33 @@ export default function Home() {
                                                     </div>
                                                 )}
 
-                                                <div className="absolute top-3 right-3 bg-white/10 backdrop-blur-md p-2 rounded-lg border border-white/20 shadow-lg transition-colors"><FileText size={16} className="text-white drop-shadow-md" /></div>
+                                                {/* Top Right Card Action Buttons: Bookmark Star & Share Link */}
+                                                <div className="absolute top-3 right-3 flex items-center gap-1.5 z-20">
+                                                    <button
+                                                        onClick={(e) => {
+                                                            e.stopPropagation();
+                                                            toggleBookmark(file.id);
+                                                        }}
+                                                        className={`p-2 rounded-lg backdrop-blur-md border transition-all ${
+                                                            isBookmarked
+                                                                ? 'bg-amber-500/25 border-amber-500/50 text-amber-300 shadow-[0_0_12px_rgba(245,158,11,0.4)]'
+                                                                : 'bg-black/60 border-white/10 text-gray-300 hover:text-amber-300 hover:bg-black/80'
+                                                        }`}
+                                                        title={isBookmarked ? "Remove Bookmark" : "Save Bookmark"}
+                                                    >
+                                                        <Star size={14} className={isBookmarked ? "fill-amber-400 text-amber-400" : ""} />
+                                                    </button>
+                                                    <button
+                                                        onClick={(e) => {
+                                                            e.stopPropagation();
+                                                            handleCopyShareLink(file.id);
+                                                        }}
+                                                        className="p-2 rounded-lg bg-black/60 hover:bg-black/80 border border-white/10 text-gray-300 hover:text-cyan-300 backdrop-blur-md transition-all"
+                                                        title="Copy Direct Link"
+                                                    >
+                                                        <Share2 size={14} />
+                                                    </button>
+                                                </div>
                                             </div>
 
                                             <div className="flex items-start justify-between z-10">
@@ -1473,218 +2035,56 @@ export default function Home() {
                                                     <h3 className="font-bold text-gray-100 text-[15px] truncate tracking-wide group-hover:text-white transition-colors">
                                                         <HighlightText text={file.title} highlight={searchTerm} />
                                                     </h3>
-                                                    <p className="text-[11px] text-gray-400 mt-1 flex items-center gap-1 font-medium"><User size={12} /> {file.uploader || "UNKNOWN"}</p>
+                                                    <p className="text-[11px] text-gray-400 mt-1 flex items-center gap-1 font-medium"><User size={12} /> {file.uploader || "Academic Roster"}</p>
                                                 </div>
-                                                {currentUser && (
+                                                {currentUser && (currentUser.role === 'admin' || file.uploader === currentUser.name) && (
                                                     <button onClick={(e) => { e.stopPropagation(); handleDeleteFile(file); }} className="text-gray-500 hover:text-red-400 transition p-2 opacity-0 group-hover:opacity-100 hover:bg-red-500/20 backdrop-blur-md rounded-lg"><Trash2 size={16} /></button>
                                                 )}
                                             </div>
                                             <div className="flex items-center gap-2 mt-auto z-10">
                                                 <span className="text-[10px] bg-white/10 text-gray-200 px-2.5 py-1 rounded-md border border-white/10 truncate max-w-[50%] font-medium">{file.course_code}</span>
                                                 <span className="text-[10px] bg-white/10 text-gray-200 px-2.5 py-1 rounded-md border border-white/10 truncate max-w-[50%] font-medium">{file.category}</span>
+                                                {!currentUser && (
+                                                    <span className="ml-auto text-[10px] bg-amber-500/10 text-amber-300 border border-amber-500/30 px-2 py-0.5 rounded-md flex items-center gap-1 font-mono font-medium shrink-0">
+                                                        <Lock size={10} /> Login to Read
+                                                    </span>
+                                                )}
                                             </div>
                                         </motion.div>
                                     );})}
                                 </div>
                             ) : (
-                                <div className="flex-1 flex flex-col items-center justify-center text-white/20 gap-4 mb-8">
-                                    {currentUser ? (
-                                        <>
-                                            <Grid size={56} className="text-white/10 drop-shadow-sm" />
-                                            <p className="font-mono tracking-widest uppercase text-sm text-gray-400">
-                                                {searchTerm ? `No files matching "${searchTerm}"` : 'NO_DATA_FOUND'}
-                                            </p>
-                                            {searchTerm && (
+                                <div className="flex-1 flex flex-col items-center justify-center text-white/30 gap-4 mb-8 py-16">
+                                    <Grid size={56} className="text-white/10 drop-shadow-sm" />
+                                    <div className="text-center max-w-md">
+                                        {libraryFilter === 'bookmarks' ? (
+                                            <>
+                                                <p className="font-mono tracking-widest uppercase text-sm text-amber-300/80 mb-1">NO_BOOKMARKS_SAVED</p>
+                                                <p className="text-xs text-gray-400">Click the star button on any document card to bookmark it for fast retrieval.</p>
+                                            </>
+                                        ) : libraryFilter === 'recent' ? (
+                                            <>
+                                                <p className="font-mono tracking-widest uppercase text-sm text-fuchsia-300/80 mb-1">NO_RECENT_DOCUMENTS</p>
+                                                <p className="text-xs text-gray-400">You haven't opened any materials recently. Select a course from the catalog to begin studying.</p>
+                                            </>
+                                        ) : searchTerm ? (
+                                            <>
+                                                <p className="font-mono tracking-widest uppercase text-sm text-gray-400 mb-1">NO_SEARCH_MATCHES</p>
+                                                <p className="text-xs text-gray-400 mb-3">No resources matching "{searchTerm}".</p>
                                                 <button
                                                     onClick={() => setSearchTerm("")}
                                                     className="text-xs font-mono text-cyan-400 hover:text-cyan-300 underline underline-offset-4 transition-colors"
                                                 >
                                                     Clear Search Filter
                                                 </button>
-                                            )}
-                                        </>
-                                    ) : (
-                                        <div className="flex-1 flex flex-col items-center justify-center p-4 sm:p-8 max-w-2xl text-center z-20 w-full">
-                                            <AnimatePresence mode="wait">
-                                                {autoLoginStatus === 'processing' && (
-                                                    <motion.div
-                                                        key="auto-login-processing"
-                                                        initial={{ opacity: 0, scale: 0.95 }}
-                                                        animate={{ opacity: 1, scale: 1 }}
-                                                        exit={{ opacity: 0, scale: 0.95 }}
-                                                        transition={{ duration: 0.3 }}
-                                                        className="w-full max-w-md p-6 sm:p-8 rounded-3xl bg-white/[0.04] backdrop-blur-2xl border border-cyan-500/30 shadow-[0_15px_40px_rgba(0,0,0,0.5),0_0_30px_rgba(6,182,212,0.15)] flex flex-col items-center relative overflow-hidden"
-                                                    >
-                                                        {/* Cyber Scan Top Glow Line */}
-                                                        <div className="absolute top-0 left-0 w-full h-[2px] bg-gradient-to-r from-transparent via-cyan-400 to-transparent animate-pulse"></div>
-
-                                                        {/* Biometric Scanning Radar Graphic */}
-                                                        <div className="relative w-28 h-28 mb-5 flex items-center justify-center">
-                                                            {/* Concentric rotating radar rings */}
-                                                            <div className="absolute inset-0 rounded-full border border-cyan-500/20 animate-ping opacity-30" style={{ animationDuration: '2.5s' }}></div>
-                                                            <div className="absolute inset-2 rounded-full border-2 border-dashed border-cyan-500/40 animate-spin" style={{ animationDuration: '10s' }}></div>
-                                                            <div className="absolute inset-4 rounded-full border border-dashed border-fuchsia-500/40 animate-spin" style={{ animationDuration: '6s', animationDirection: 'reverse' }}></div>
-
-                                                            {/* Central Biometric Scanner Core */}
-                                                            <div className="relative w-16 h-16 rounded-2xl bg-gradient-to-br from-cyan-500/20 via-blue-500/10 to-fuchsia-500/20 border border-white/20 backdrop-blur-md flex items-center justify-center shadow-[0_0_25px_rgba(6,182,212,0.3)] overflow-hidden">
-                                                                <Fingerprint size={32} className="text-cyan-300 animate-pulse drop-shadow-[0_0_10px_rgba(6,182,212,0.8)]" />
-                                                                
-                                                                {/* Moving Laser Beam Sweep */}
-                                                                <motion.div
-                                                                    animate={{ y: [-26, 26, -26] }}
-                                                                    transition={{ repeat: Infinity, duration: 1.8, ease: "easeInOut" }}
-                                                                    className="absolute w-full h-[2px] bg-gradient-to-r from-transparent via-cyan-300 to-transparent shadow-[0_0_8px_rgba(34,211,238,1)]"
-                                                                />
-                                                            </div>
-                                                        </div>
-
-                                                        {/* Status Badge */}
-                                                        <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-cyan-500/10 border border-cyan-500/30 text-cyan-300 font-mono text-[11px] uppercase tracking-widest mb-3 shadow-[0_0_15px_rgba(6,182,212,0.15)]">
-                                                            <span className="w-2 h-2 rounded-full bg-cyan-400 animate-ping"></span>
-                                                            <span>Auto-Login In Progress</span>
-                                                        </div>
-
-                                                        <h3 className="text-lg sm:text-xl font-black text-white tracking-wide uppercase mb-1">
-                                                            Authenticating Session
-                                                        </h3>
-                                                        <p className="text-xs text-gray-400 font-mono max-w-xs leading-relaxed mb-5">
-                                                            Verifying device credentials and retrieving student records...
-                                                        </p>
-
-                                                        {/* High-tech animated progress track */}
-                                                        <div className="w-48 sm:w-56 h-1.5 bg-black/40 rounded-full overflow-hidden border border-white/10 relative">
-                                                            <motion.div
-                                                                animate={{ x: ["-100%", "100%"] }}
-                                                                transition={{ repeat: Infinity, duration: 1.2, ease: "easeInOut" }}
-                                                                className="w-1/2 h-full bg-gradient-to-r from-transparent via-cyan-400 to-transparent shadow-[0_0_10px_rgba(6,182,212,0.8)]"
-                                                            />
-                                                        </div>
-                                                    </motion.div>
-                                                )}
-
-                                                {autoLoginStatus === 'failed' && (
-                                                    <motion.div
-                                                        key="auto-login-failed"
-                                                        initial={{ opacity: 0, scale: 0.95 }}
-                                                        animate={{ opacity: 1, scale: 1 }}
-                                                        exit={{ opacity: 0, scale: 0.95 }}
-                                                        transition={{ duration: 0.3 }}
-                                                        className="w-full max-w-md p-6 sm:p-8 rounded-3xl bg-white/[0.04] backdrop-blur-2xl border border-rose-500/30 shadow-[0_15px_40px_rgba(0,0,0,0.5),0_0_30px_rgba(244,63,94,0.12)] flex flex-col items-center relative overflow-hidden"
-                                                    >
-                                                        {/* Red/Amber Warning Accent Line */}
-                                                        <div className="absolute top-0 left-0 w-full h-[2px] bg-gradient-to-r from-transparent via-rose-400 to-amber-400"></div>
-
-                                                        {/* Key/Lock Alert Icon */}
-                                                        <div className="w-20 h-20 mb-4 rounded-2xl bg-gradient-to-br from-rose-500/15 via-amber-500/10 to-rose-500/5 border border-rose-500/30 flex items-center justify-center text-rose-400 shadow-[0_0_25px_rgba(244,63,94,0.2)]">
-                                                            <KeyRound size={34} className="text-rose-300 drop-shadow-[0_0_10px_rgba(244,63,94,0.6)]" />
-                                                        </div>
-
-                                                        {/* Status Pill */}
-                                                        <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-rose-500/10 border border-rose-500/30 text-rose-300 font-mono text-[11px] uppercase tracking-widest mb-2.5">
-                                                            <ShieldAlert size={12} />
-                                                            <span>Auto-Login Not Found / Expired</span>
-                                                        </div>
-
-                                                        <h3 className="text-lg sm:text-xl font-black text-white tracking-wide uppercase mb-2">
-                                                            Please Login Again
-                                                        </h3>
-
-                                                        <p className="text-xs sm:text-sm text-gray-300 leading-relaxed max-w-xs mb-6 font-medium">
-                                                            No active session was detected on this device. Please log in with your <strong className="text-cyan-300 font-semibold">Student ID & Password</strong> to continue.
-                                                        </p>
-
-                                                        {/* Primary Action Button: Login with ID & Password */}
-                                                        <div className="w-full flex flex-col gap-2.5">
-                                                            <button
-                                                                onClick={openLoginWithIdPassword}
-                                                                className="w-full py-3.5 px-5 bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-white font-bold text-xs sm:text-sm tracking-wider uppercase rounded-xl shadow-[0_0_25px_rgba(6,182,212,0.35)] hover:shadow-[0_0_35px_rgba(6,182,212,0.5)] hover:-translate-y-0.5 transition-all flex items-center justify-center gap-2"
-                                                            >
-                                                                <LogIn size={16} />
-                                                                <span>Login with ID & Password</span>
-                                                            </button>
-
-                                                            <button
-                                                                onClick={() => attemptAutoLogin()}
-                                                                className="w-full py-2.5 px-4 bg-white/5 hover:bg-white/10 text-gray-400 hover:text-white font-mono text-[11px] tracking-wider uppercase rounded-xl border border-white/10 transition-colors flex items-center justify-center gap-1.5"
-                                                            >
-                                                                <RefreshCw size={12} />
-                                                                <span>Retry Auto-Login</span>
-                                                            </button>
-                                                        </div>
-                                                    </motion.div>
-                                                )}
-
-                                                {autoLoginStatus === 'success' && (
-                                                    <motion.div
-                                                        key="auto-login-success"
-                                                        initial={{ opacity: 0, scale: 0.95 }}
-                                                        animate={{ opacity: 1, scale: 1 }}
-                                                        exit={{ opacity: 0, scale: 0.95 }}
-                                                        transition={{ duration: 0.3 }}
-                                                        className="w-full max-w-md p-6 sm:p-8 rounded-3xl bg-white/[0.04] backdrop-blur-2xl border border-emerald-500/30 shadow-[0_15px_40px_rgba(0,0,0,0.5),0_0_30px_rgba(16,185,129,0.2)] flex flex-col items-center relative overflow-hidden"
-                                                    >
-                                                        <div className="absolute top-0 left-0 w-full h-[2px] bg-gradient-to-r from-transparent via-emerald-400 to-transparent"></div>
-                                                        <div className="w-20 h-20 mb-4 rounded-2xl bg-emerald-500/15 border border-emerald-500/30 flex items-center justify-center text-emerald-300 shadow-[0_0_25px_rgba(16,185,129,0.3)]">
-                                                            <ShieldCheck size={36} className="text-emerald-300 drop-shadow-[0_0_12px_rgba(16,185,129,0.8)]" />
-                                                        </div>
-                                                        <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 font-mono text-[11px] uppercase tracking-widest mb-2.5">
-                                                            <span>✓ Session Verified</span>
-                                                        </div>
-                                                        <h3 className="text-lg sm:text-xl font-black text-white tracking-wide uppercase mb-1">
-                                                            Welcome Back!
-                                                        </h3>
-                                                        <p className="text-xs text-gray-300 font-mono">
-                                                            Unlocking your courses and study materials...
-                                                        </p>
-                                                    </motion.div>
-                                                )}
-
-                                                {autoLoginStatus === 'idle' && (
-                                                    <motion.div
-                                                        key="auto-login-idle"
-                                                        initial={{ opacity: 0, scale: 0.95 }}
-                                                        animate={{ opacity: 1, scale: 1 }}
-                                                        exit={{ opacity: 0, scale: 0.95 }}
-                                                        transition={{ duration: 0.3 }}
-                                                        className="w-full max-w-lg flex flex-col items-center"
-                                                    >
-                                                        <div className="w-24 h-24 mb-6 relative flex items-center justify-center">
-                                                            <div className="absolute inset-0 bg-white/5 rounded-full animate-ping opacity-20 duration-1000"></div>
-                                                            <div className="absolute inset-0 bg-white/10 rounded-full backdrop-blur-xl border border-white/20 flex items-center justify-center shadow-[0_0_30px_rgba(255,255,255,0.1)]">
-                                                                <Lock size={32} className="text-white drop-shadow-md" />
-                                                            </div>
-                                                        </div>
-                                                        
-                                                        <h2 className="text-3xl font-black text-transparent bg-clip-text bg-gradient-to-r from-white to-gray-400 mb-6 tracking-tight drop-shadow-sm">Access Knowledge Base</h2>
-                                                        
-                                                        <div className="h-16 mb-8 relative w-full flex items-center justify-center overflow-visible">
-                                                            <AnimatePresence mode="wait">
-                                                                <motion.p
-                                                                    key={quoteIndex}
-                                                                    initial={{ opacity: 0, y: 10, filter: "blur(4px)" }}
-                                                                    animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
-                                                                    exit={{ opacity: 0, y: -10, filter: "blur(4px)" }}
-                                                                    transition={{ duration: 0.6, ease: "easeOut" }}
-                                                                    className="text-sm md:text-base font-medium text-gray-300 italic leading-relaxed max-w-lg absolute text-center"
-                                                                >
-                                                                    "{STAT_QUOTES[quoteIndex]}"
-                                                                </motion.p>
-                                                            </AnimatePresence>
-                                                        </div>
-
-                                                        <button 
-                                                            onClick={() => openLoginModal('login')} 
-                                                            className="group relative px-8 py-3.5 bg-white/10 hover:bg-white/20 backdrop-blur-md rounded-xl transition-all duration-300 border border-white/20 shadow-[0_8px_20px_rgba(0,0,0,0.2)] hover:shadow-[0_10px_30px_rgba(255,255,255,0.1)] hover:-translate-y-1 overflow-hidden"
-                                                        >
-                                                            <span className="relative text-sm font-bold tracking-widest text-white uppercase drop-shadow-sm flex items-center gap-2">
-                                                                Login to Access <ChevronRight size={16} className="group-hover:translate-x-1 transition-transform" />
-                                                            </span>
-                                                        </button>
-                                                    </motion.div>
-                                                )}
-                                            </AnimatePresence>
-                                        </div>
-                                    )}
+                                            </>
+                                        ) : (
+                                            <>
+                                                <p className="font-mono tracking-widest uppercase text-sm text-gray-400 mb-1">NO_DATA_FOUND</p>
+                                                <p className="text-xs text-gray-400">No resources available in the library yet.</p>
+                                            </>
+                                        )}
+                                    </div>
                                 </div>
                             )}
 
@@ -1856,8 +2256,34 @@ export default function Home() {
                                 </div>
                             </div>
 
-                            {/* Top Stats & Filters Section (Fixed, non-scrolling) */}
-                            <div className="p-3 sm:p-5 border-b border-white/10 bg-white/[0.01] shrink-0 space-y-3">
+                            {/* 🔀 Admin Subsystem Tabs */}
+                            <div className="flex items-center gap-2 px-3 sm:px-6 pt-3 border-b border-white/10 bg-black/20 shrink-0">
+                                <button
+                                    onClick={() => setAdminActiveTab('analytics')}
+                                    className={`pb-2.5 px-3 text-xs font-mono uppercase tracking-wider flex items-center gap-2 border-b-2 transition-all ${
+                                        adminActiveTab === 'analytics'
+                                            ? 'border-cyan-400 text-cyan-300 font-bold'
+                                            : 'border-transparent text-gray-400 hover:text-white'
+                                    }`}
+                                >
+                                    <Activity size={13} /> Traffic & Analytics
+                                </button>
+                                <button
+                                    onClick={() => setAdminActiveTab('roster')}
+                                    className={`pb-2.5 px-3 text-xs font-mono uppercase tracking-wider flex items-center gap-2 border-b-2 transition-all ${
+                                        adminActiveTab === 'roster'
+                                            ? 'border-emerald-400 text-emerald-300 font-bold'
+                                            : 'border-transparent text-gray-400 hover:text-white'
+                                    }`}
+                                >
+                                    <Users size={13} /> Student Roster & CSV Import ({trafficData?.students?.length || 0})
+                                </button>
+                            </div>
+
+                            {adminActiveTab === 'analytics' ? (
+                                <>
+                                    {/* Top Stats & Filters Section (Fixed, non-scrolling) */}
+                                    <div className="p-3 sm:p-5 border-b border-white/10 bg-white/[0.01] shrink-0 space-y-3">
                                 {/* 4 Summary Cards + Device Analytics */}
                                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-3">
                                     <div className="p-2.5 sm:p-3 rounded-xl sm:rounded-2xl bg-white/[0.03] border border-white/10 flex flex-col justify-between">
@@ -2150,6 +2576,127 @@ export default function Home() {
                                     );
                                 })()}
                             </div>
+                        </>
+                    ) : (
+                        <div className="flex-1 min-h-0 overflow-y-auto custom-scrollbar p-4 sm:p-6 space-y-6">
+                            {/* Grid with Single Add and Batch CSV Import */}
+                            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                                {/* Single Student Add */}
+                                <div className="p-4 rounded-2xl bg-white/[0.03] border border-white/10 flex flex-col justify-between">
+                                    <div>
+                                        <h4 className="text-xs font-mono font-bold uppercase text-white flex items-center gap-2 mb-1">
+                                            <User size={14} className="text-cyan-400" /> Add Single Student
+                                        </h4>
+                                        <p className="text-[11px] text-gray-400 mb-4">Register an authorized student ID into the database.</p>
+                                        <div className="space-y-3">
+                                            <input
+                                                type="text"
+                                                placeholder="Student ID (e.g. 210101)"
+                                                value={newStudentForm.id}
+                                                onChange={(e) => setNewStudentForm({ ...newStudentForm, id: e.target.value.toUpperCase() })}
+                                                className="w-full bg-black/40 border border-white/10 rounded-xl px-3 py-2 text-xs text-white outline-none font-mono focus:border-cyan-500/50 uppercase"
+                                            />
+                                            <input
+                                                type="text"
+                                                placeholder="Full Name (optional)"
+                                                value={newStudentForm.name}
+                                                onChange={(e) => setNewStudentForm({ ...newStudentForm, name: e.target.value })}
+                                                className="w-full bg-black/40 border border-white/10 rounded-xl px-3 py-2 text-xs text-white outline-none focus:border-cyan-500/50"
+                                            />
+                                            <input
+                                                type="email"
+                                                placeholder="Email Address (optional)"
+                                                value={newStudentForm.email}
+                                                onChange={(e) => setNewStudentForm({ ...newStudentForm, email: e.target.value })}
+                                                className="w-full bg-black/40 border border-white/10 rounded-xl px-3 py-2 text-xs text-white outline-none focus:border-cyan-500/50"
+                                            />
+                                        </div>
+                                    </div>
+                                    <button
+                                        onClick={handleAddSingleStudent}
+                                        disabled={isRosterLoading}
+                                        className="mt-4 w-full py-2.5 bg-cyan-500/20 hover:bg-cyan-500/30 border border-cyan-500/40 text-cyan-200 hover:text-white rounded-xl text-xs font-mono uppercase tracking-wider font-bold transition-all flex items-center justify-center gap-2 disabled:opacity-50"
+                                    >
+                                        {isRosterLoading ? <Loader2 size={13} className="animate-spin" /> : <Plus size={13} />}
+                                        Add Student to Roster
+                                    </button>
+                                </div>
+
+                                {/* Batch CSV Import */}
+                                <div className="p-4 rounded-2xl bg-white/[0.03] border border-white/10 flex flex-col justify-between">
+                                    <div>
+                                        <h4 className="text-xs font-mono font-bold uppercase text-white flex items-center gap-2 mb-1">
+                                            <Upload size={14} className="text-emerald-400" /> Batch CSV Import
+                                        </h4>
+                                        <p className="text-[11px] text-gray-400 mb-3">Paste multiple students: <span className="text-emerald-300 font-mono">ID, Name, Email</span> (one per line).</p>
+                                        <textarea
+                                            rows={4}
+                                            placeholder={`210101, Rahat Islam, rahat@du.ac.bd\n210102, Tanvir Ahmed, tanvir@du.ac.bd`}
+                                            value={batchCsvText}
+                                            onChange={(e) => setBatchCsvText(e.target.value)}
+                                            className="w-full bg-black/40 border border-white/10 rounded-xl p-3 text-xs text-white outline-none font-mono focus:border-emerald-500/50 resize-none placeholder-gray-600"
+                                        />
+                                    </div>
+                                    <button
+                                        onClick={handleBatchImportStudents}
+                                        disabled={isRosterLoading}
+                                        className="mt-4 w-full py-2.5 bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-500/40 text-emerald-200 hover:text-white rounded-xl text-xs font-mono uppercase tracking-wider font-bold transition-all flex items-center justify-center gap-2 disabled:opacity-50"
+                                    >
+                                        {isRosterLoading ? <Loader2 size={13} className="animate-spin" /> : <Upload size={13} />}
+                                        Import Batch Roster
+                                    </button>
+                                </div>
+                            </div>
+
+                            {/* Roster Table */}
+                            <div className="border border-white/10 rounded-2xl overflow-hidden bg-white/[0.01]">
+                                <div className="p-3 bg-[#0c0c12] border-b border-white/10 flex items-center justify-between">
+                                    <span className="text-xs font-mono uppercase text-gray-400 font-bold">
+                                        Enrolled Students ({trafficData?.students?.length || 0})
+                                    </span>
+                                    <div className="text-[11px] font-mono text-gray-500">
+                                        Authorized for Portal Registration & Login
+                                    </div>
+                                </div>
+                                <div className="overflow-x-auto">
+                                    <table className="w-full text-left border-collapse text-xs">
+                                        <thead>
+                                            <tr className="border-b border-white/10 text-gray-400 font-mono uppercase text-[10px] bg-white/[0.02]">
+                                                <th className="p-3 pl-4">Student ID</th>
+                                                <th className="p-3">Name</th>
+                                                <th className="p-3">Email</th>
+                                                <th className="p-3 text-center">Status</th>
+                                                <th className="p-3 pr-4 text-right">Action</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody className="divide-y divide-white/5 font-mono">
+                                            {(trafficData?.students || []).map((student: any) => (
+                                                <tr key={student.id} className="hover:bg-white/[0.03] transition-colors">
+                                                    <td className="p-3 pl-4 font-bold text-cyan-300">{student.id}</td>
+                                                    <td className="p-3 text-white font-sans font-medium">{student.name}</td>
+                                                    <td className="p-3 text-gray-400">{student.email || <span className="text-gray-600 italic">None</span>}</td>
+                                                    <td className="p-3 text-center">
+                                                        <span className={`px-2 py-0.5 rounded-full text-[10px] ${student.isRegistered ? 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/30' : 'bg-amber-500/15 text-amber-300 border border-amber-500/30'}`}>
+                                                            {student.isRegistered ? 'Registered' : 'Pending First Login'}
+                                                        </span>
+                                                    </td>
+                                                    <td className="p-3 pr-4 text-right">
+                                                        <button
+                                                            onClick={() => handleDeleteStudent(student.id)}
+                                                            title="Remove Student"
+                                                            className="p-1.5 rounded-lg text-gray-500 hover:text-rose-400 hover:bg-rose-500/10 transition-colors"
+                                                        >
+                                                            <Trash2 size={13} />
+                                                        </button>
+                                                    </td>
+                                                </tr>
+                                            ))}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+                    )}
                         </motion.div>
                     </motion.div>
                 )}
@@ -2334,6 +2881,32 @@ export default function Home() {
                         </div>
                     </div>
                 </div>
+            )}
+
+            {/* 🎓 Academic & AI Superpower Modals */}
+            <GpaCalculatorModal
+                isOpen={showGpaModal}
+                onClose={() => setShowGpaModal(false)}
+            />
+
+            {selectedFile && (
+                <>
+                    <QuizModal
+                        isOpen={showQuizModal}
+                        onClose={() => setShowQuizModal(false)}
+                        courseId={selectedFile.id}
+                        fileTitle={selectedFile.title}
+                        courseCode={selectedFile.course_code || 'General'}
+                    />
+
+                    <CheatSheetModal
+                        isOpen={showCheatSheetModal}
+                        onClose={() => setShowCheatSheetModal(false)}
+                        courseId={selectedFile.id}
+                        fileTitle={selectedFile.title}
+                        courseCode={selectedFile.course_code || 'General'}
+                    />
+                </>
             )}
 
         </motion.div>
