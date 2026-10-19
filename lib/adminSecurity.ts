@@ -1,4 +1,5 @@
 import crypto from 'crypto';
+import jwt from 'jsonwebtoken';
 import nodemailer from 'nodemailer';
 import fs from 'fs';
 import path from 'path';
@@ -18,6 +19,10 @@ const transporter = nodemailer.createTransport({
     }
 });
 
+function getSecuritySecret(): string {
+    return process.env.JWT_SECRET || process.env.ADMIN_SECRET_PASSWORD || 'statnotes_secure_admin_jwt_secret_2026';
+}
+
 /**
  * Local fallback helpers for trusted devices in case Supabase table doesn't exist yet
  */
@@ -27,8 +32,8 @@ function readLocalTrustedDevices(): Set<string> {
             const data = JSON.parse(fs.readFileSync(FALLBACK_DEVICES_FILE, 'utf-8'));
             return new Set(Array.isArray(data) ? data : []);
         }
-    } catch (e) {
-        console.warn("[adminSecurity] Could not read local devices file:", e);
+    } catch {
+        // Expected on read-only serverless filesystems (e.g. Netlify/Vercel)
     }
     return new Set();
 }
@@ -38,16 +43,19 @@ function saveLocalTrustedDevice(token: string) {
         const set = readLocalTrustedDevices();
         set.add(token);
         fs.writeFileSync(FALLBACK_DEVICES_FILE, JSON.stringify(Array.from(set), null, 2), 'utf-8');
-    } catch (e) {
-        console.warn("[adminSecurity] Could not write local devices file:", e);
+    } catch {
+        // Expected on read-only serverless filesystems (e.g. Netlify/Vercel)
     }
 }
 
 /**
  * Check if the incoming request comes from an already bound / trusted admin device
+ * Uses cryptographically signed JWT tokens (serverless native) + fallback storage
  */
 export async function isAdminDeviceTrusted(request: Request): Promise<boolean> {
     try {
+        const secret = getSecuritySecret();
+
         // 1. Extract device token from cookie or header
         const cookieHeader = request.headers.get('cookie') || '';
         const match = cookieHeader.match(new RegExp(`(?:^|;\\s*)${ADMIN_DEVICE_COOKIE}=([^;]+)`));
@@ -57,23 +65,35 @@ export async function isAdminDeviceTrusted(request: Request): Promise<boolean> {
             return false;
         }
 
-        // 2. Check local fallback file first (instant 0ms response)
+        // 2. 🌐 Primary Serverless Verification: Cryptographically signed 1-year JWT device token
+        try {
+            const decoded = jwt.verify(deviceToken, secret) as any;
+            if (decoded && decoded.type === 'admin_trusted_device') {
+                return true;
+            }
+        } catch {
+            // Not a valid JWT or expired, check database / fallback
+        }
+
+        // 3. Check local fallback file (for local dev)
         const localDevices = readLocalTrustedDevices();
         if (localDevices.has(deviceToken)) {
             return true;
         }
 
-        // 3. Check Supabase database table
-        const { data, error } = await supabase
-            .from('admin_trusted_devices')
-            .select('id, device_token')
-            .eq('device_token', deviceToken)
-            .single();
+        // 4. Check Supabase database table
+        try {
+            const { data, error } = await supabase
+                .from('admin_trusted_devices')
+                .select('id, device_token')
+                .eq('device_token', deviceToken)
+                .single();
 
-        if (data && !error) {
-            // Cache locally for faster subsequent checks
-            saveLocalTrustedDevice(deviceToken);
-            return true;
+            if (data && !error) {
+                return true;
+            }
+        } catch {
+            // Table might not exist yet; safe to ignore
         }
 
         return false;
@@ -84,9 +104,15 @@ export async function isAdminDeviceTrusted(request: Request): Promise<boolean> {
 }
 
 /**
- * Generate a 6-digit security OTP and email it to the admin email from .env.local
+ * Generate a 6-digit security OTP, email it to the admin email from .env.local,
+ * and generate a stateless cryptographic challenge token (Netlify / Serverless safe).
  */
-export async function sendAdminLoginOtp(clientIp = 'unknown'): Promise<{ success: boolean; maskedEmail: string; error?: string }> {
+export async function sendAdminLoginOtp(clientIp = 'unknown'): Promise<{ 
+    success: boolean; 
+    maskedEmail: string; 
+    challengeToken?: string;
+    error?: string 
+}> {
     const adminEmail = process.env.ADMIN_EMAIL || process.env.EMAIL_USER;
 
     if (!adminEmail) {
@@ -96,12 +122,27 @@ export async function sendAdminLoginOtp(clientIp = 'unknown'): Promise<{ success
     // 🔒 Cryptographically secure 6-digit OTP
     const otp = crypto.randomInt(100000, 999999).toString();
     const expiry = Date.now() + 10 * 60 * 1000; // 10 minutes
+    const secret = getSecuritySecret();
 
-    // Persist pending OTP
+    // 🌐 Serverless-Native Challenge Token:
+    // This allows verification to succeed across DIFFERENT lambda instances / containers on Netlify
+    // without depending on a shared disk.
+    const otpHash = crypto.createHmac('sha256', secret).update(otp).digest('hex');
+    const challengeToken = jwt.sign(
+        {
+            type: 'admin_login_otp_challenge',
+            otpHash,
+            createdAt: Date.now()
+        },
+        secret,
+        { expiresIn: '10m' }
+    );
+
+    // Local file fallback (works on local development server)
     try {
         fs.writeFileSync(FALLBACK_OTP_FILE, JSON.stringify({ otp, expiry, createdAt: Date.now() }), 'utf-8');
-    } catch (err) {
-        console.error("[adminSecurity] Failed to save pending OTP:", err);
+    } catch {
+        // Ignored on read-only serverless filesystems
     }
 
     // Mask recipient email (e.g. b***e@gmail.com)
@@ -152,7 +193,7 @@ export async function sendAdminLoginOtp(clientIp = 'unknown'): Promise<{ success
             `
         });
         console.log(`[adminSecurity] ✓ Admin OTP email successfully delivered to ${adminEmail}`);
-        return { success: true, maskedEmail };
+        return { success: true, maskedEmail, challengeToken };
     } catch (err: any) {
         console.error("[adminSecurity] ❌ Failed to send admin OTP email:", err);
         return { success: false, maskedEmail, error: err.message || "Failed to send email" };
@@ -160,52 +201,78 @@ export async function sendAdminLoginOtp(clientIp = 'unknown'): Promise<{ success
 }
 
 /**
- * Verify submitted OTP against the active pending admin OTP
+ * Verify submitted OTP against the active challenge token (Serverless / Netlify)
+ * or local fallback file
  */
-export function verifyAdminLoginOtp(submittedOtp: string): boolean {
-    try {
-        if (!fs.existsSync(FALLBACK_OTP_FILE)) {
-            return false;
-        }
+export function verifyAdminLoginOtp(submittedOtp: string, challengeToken?: string): boolean {
+    const cleanOtp = (submittedOtp || '').trim();
+    if (!cleanOtp) return false;
 
-        const data = JSON.parse(fs.readFileSync(FALLBACK_OTP_FILE, 'utf-8'));
-        if (!data || !data.otp || !data.expiry) {
-            return false;
-        }
+    const secret = getSecuritySecret();
 
-        if (Date.now() > data.expiry) {
-            console.warn("[adminSecurity] Submitted OTP has expired.");
-            fs.unlinkSync(FALLBACK_OTP_FILE);
-            return false;
+    // 1. 🌐 Primary: Stateless Cryptographic Verification (Works on Netlify & Serverless Lambdas)
+    if (challengeToken) {
+        try {
+            const decoded = jwt.verify(challengeToken, secret) as any;
+            if (decoded && decoded.type === 'admin_login_otp_challenge' && decoded.otpHash) {
+                const computedHash = crypto.createHmac('sha256', secret).update(cleanOtp).digest('hex');
+                const isMatch = crypto.timingSafeEqual(
+                    Buffer.from(computedHash, 'hex'),
+                    Buffer.from(decoded.otpHash, 'hex')
+                );
+                if (isMatch) {
+                    console.log(`[adminSecurity] ✓ Challenge token OTP verified successfully on serverless instance.`);
+                    try {
+                        if (fs.existsSync(FALLBACK_OTP_FILE)) fs.unlinkSync(FALLBACK_OTP_FILE);
+                    } catch {}
+                    return true;
+                }
+            }
+        } catch (err: any) {
+            console.warn("[adminSecurity] Challenge token validation failed:", err?.message || err);
         }
-
-        const isValid = data.otp.trim() === submittedOtp.trim();
-        if (isValid) {
-            // Consume OTP so it cannot be re-used
-            try {
-                fs.unlinkSync(FALLBACK_OTP_FILE);
-            } catch {}
-            return true;
-        }
-
-        return false;
-    } catch (err) {
-        console.error("[adminSecurity] Error verifying OTP:", err);
-        return false;
     }
+
+    // 2. Fallback: Local file check (for local development)
+    try {
+        if (fs.existsSync(FALLBACK_OTP_FILE)) {
+            const data = JSON.parse(fs.readFileSync(FALLBACK_OTP_FILE, 'utf-8'));
+            if (data && data.otp && data.expiry && Date.now() <= data.expiry) {
+                if (data.otp.trim() === cleanOtp) {
+                    try { fs.unlinkSync(FALLBACK_OTP_FILE); } catch {}
+                    return true;
+                }
+            }
+        }
+    } catch {}
+
+    return false;
 }
 
 /**
  * Automatically bind the current device as a trusted device for 1 year
+ * Generates a signed JWT device token stored in a persistent cookie
  */
 export async function bindCurrentAdminDevice(
     response: NextResponse, 
     userAgent = 'Unknown Device', 
     ipAddress = 'unknown'
 ): Promise<string> {
-    const deviceToken = crypto.randomBytes(32).toString('hex');
+    const secret = getSecuritySecret();
 
-    // 1. Save in local fallback storage
+    // 🌐 Generate cryptographically signed 1-year JWT device token (serverless resilient)
+    const deviceToken = jwt.sign(
+        {
+            type: 'admin_trusted_device',
+            boundAt: Date.now(),
+            ua: userAgent.slice(0, 100),
+            ip: ipAddress
+        },
+        secret,
+        { expiresIn: '365d' }
+    );
+
+    // 1. Save in local fallback storage (for dev)
     saveLocalTrustedDevice(deviceToken);
 
     // 2. Save in Supabase database
@@ -219,18 +286,18 @@ export async function bindCurrentAdminDevice(
                 last_used_at: new Date().toISOString()
             });
     } catch (err) {
-        console.warn("[adminSecurity] Database device bind warning (local device bound):", err);
+        // Table might not exist yet; safe to ignore because JWT signature validates the device
     }
 
     // 3. Set persistent 1-year device cookie on the response
     response.cookies.set(ADMIN_DEVICE_COOKIE, deviceToken, {
         httpOnly: true,
-        secure: process.env.NODE_ENV === 'production',
+        secure: true,
         sameSite: 'lax',
         path: '/',
         maxAge: 365 * 24 * 60 * 60 // 1 year binding
     });
 
-    console.log(`[adminSecurity] ✓ Device successfully bound with token: ${deviceToken.slice(0, 10)}...`);
+    console.log(`[adminSecurity] ✓ Device successfully bound with serverless-safe token: ${deviceToken.slice(0, 15)}...`);
     return deviceToken;
 }

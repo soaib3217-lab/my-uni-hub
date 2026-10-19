@@ -251,6 +251,7 @@ export default function Home() {
     const [isAuthLoading, setIsAuthLoading] = useState(false);
     const [adminOtpEmail, setAdminOtpEmail] = useState<string>("");
     const [resendCooldown, setResendCooldown] = useState<number>(0);
+    const [adminChallengeToken, setAdminChallengeToken] = useState<string>("");
 
     // Auto-Login States
     const [autoLoginStatus, setAutoLoginStatus] = useState<'idle' | 'processing' | 'success' | 'failed'>('processing');
@@ -553,6 +554,7 @@ export default function Home() {
         setAuthForm({ id: "", email: "", password: "", otp: "", newPassword: "" });
         setAdminOtpEmail("");
         setResendCooldown(0);
+        setAdminChallengeToken("");
         if (typeof window !== 'undefined') {
             localStorage.removeItem('statnotes_saved_id');
         }
@@ -703,6 +705,9 @@ export default function Home() {
                 }
                 body.action = 'admin_verify_otp';
                 body.otp = authForm.otp.trim();
+                if (adminChallengeToken) {
+                    body.challengeToken = adminChallengeToken;
+                }
             } else if (authMode === 'login' || authMode === 'register') {
                 if (!authForm.id.trim()) {
                     setIsAuthLoading(false);
@@ -743,6 +748,9 @@ export default function Home() {
                 if (data.requireOtp) {
                     setAuthMode('admin_otp');
                     setAdminOtpEmail(data.email || 'Admin Email');
+                    if (data.challengeToken) {
+                        setAdminChallengeToken(data.challengeToken);
+                    }
                     setAuthForm(prev => ({ ...prev, otp: "" }));
                     return;
                 }
@@ -787,6 +795,9 @@ export default function Home() {
             });
             const data = await response.json();
             if (data.success) {
+                if (data.challengeToken) {
+                    setAdminChallengeToken(data.challengeToken);
+                }
                 alert(data.message || "New verification code dispatched!");
                 setResendCooldown(60);
                 const timer = setInterval(() => {

@@ -32,7 +32,7 @@ export async function POST(request: Request) {
             return NextResponse.json({ success: false, error: "Invalid JSON payload" }, { status: 400 });
         }
 
-        const { action, id, email, password, otp } = body;
+        const { action, id, email, password, otp, challengeToken } = body;
 
         if (!action || typeof action !== 'string') {
             return NextResponse.json({ success: false, error: "Missing or invalid action" }, { status: 400 });
@@ -61,7 +61,12 @@ export async function POST(request: Request) {
                 return NextResponse.json({ success: false, error: "Verification code is required." }, { status: 400 });
             }
 
-            const isValid = verifyAdminLoginOtp(cleanOtp);
+            // Extract challenge token from request body or secure HTTP-only cookie
+            const cookieHeader = request.headers.get('cookie') || '';
+            const matchChallenge = cookieHeader.match(/(?:^|;\s*)admin_otp_challenge=([^;]+)/);
+            const activeChallenge = challengeToken || (matchChallenge ? decodeURIComponent(matchChallenge[1].trim()) : undefined);
+
+            const isValid = verifyAdminLoginOtp(cleanOtp, activeChallenge);
             if (!isValid) {
                 return NextResponse.json({ success: false, error: "Invalid or expired verification code. Please try again." }, { status: 401 });
             }
@@ -80,10 +85,13 @@ export async function POST(request: Request) {
                 message: "Device successfully verified and bound."
             });
 
+            // Clear the used challenge cookie
+            response.cookies.delete('admin_otp_challenge');
+
             // Set Admin session cookie
             response.cookies.set('auth_token', token, {
                 httpOnly: true,
-                secure: process.env.NODE_ENV === 'production',
+                secure: true,
                 sameSite: 'lax',
                 path: '/',
                 maxAge: 60 * 60 * 24 * 7
@@ -101,10 +109,24 @@ export async function POST(request: Request) {
             if (!otpRes.success) {
                 return NextResponse.json({ success: false, error: otpRes.error || "Failed to resend code" }, { status: 500 });
             }
-            return NextResponse.json({
+
+            const response = NextResponse.json({
                 success: true,
+                challengeToken: otpRes.challengeToken,
                 message: `New code dispatched to ${otpRes.maskedEmail}`
             });
+
+            if (otpRes.challengeToken) {
+                response.cookies.set('admin_otp_challenge', otpRes.challengeToken, {
+                    httpOnly: true,
+                    secure: true,
+                    sameSite: 'lax',
+                    path: '/',
+                    maxAge: 600
+                });
+            }
+
+            return response;
         }
 
         const cleanId = sanitizeString(id, 50).toUpperCase();
@@ -155,13 +177,26 @@ export async function POST(request: Request) {
                     }, { status: 500 });
                 }
 
-                return NextResponse.json({
+                const response = NextResponse.json({
                     success: true,
                     requireOtp: true,
                     role: 'admin',
                     email: otpRes.maskedEmail,
+                    challengeToken: otpRes.challengeToken,
                     message: `Security code sent to admin email (${otpRes.maskedEmail}). Please enter code to verify & bind this device.`
                 });
+
+                if (otpRes.challengeToken) {
+                    response.cookies.set('admin_otp_challenge', otpRes.challengeToken, {
+                        httpOnly: true,
+                        secure: true,
+                        sameSite: 'lax',
+                        path: '/',
+                        maxAge: 600
+                    });
+                }
+
+                return response;
             }
         }
 
