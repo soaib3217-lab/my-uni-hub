@@ -10,12 +10,19 @@ import {
     validateEmail, 
     sanitizeString 
 } from '@/lib/security';
+import { 
+    isAdminDeviceTrusted, 
+    sendAdminLoginOtp, 
+    verifyAdminLoginOtp, 
+    bindCurrentAdminDevice 
+} from '@/lib/adminSecurity';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'fallback_secret_for_dev_only';
 const ADMIN_SECRET = process.env.ADMIN_SECRET_PASSWORD || '';
 
 export async function POST(request: Request) {
     const clientIp = getClientIp(request);
+    const userAgent = request.headers.get('user-agent') || 'Unknown Device';
 
     try {
         let body: any;
@@ -25,7 +32,7 @@ export async function POST(request: Request) {
             return NextResponse.json({ success: false, error: "Invalid JSON payload" }, { status: 400 });
         }
 
-        const { action, id, email, password } = body;
+        const { action, id, email, password, otp } = body;
 
         if (!action || typeof action !== 'string') {
             return NextResponse.json({ success: false, error: "Missing or invalid action" }, { status: 400 });
@@ -47,35 +54,114 @@ export async function POST(request: Request) {
             );
         }
 
+        // 🔐 1. ADMIN 2FA OTP VERIFICATION & AUTOMATIC DEVICE BINDING
+        if (action === 'admin_verify_otp') {
+            const cleanOtp = sanitizeString(otp, 10);
+            if (!cleanOtp) {
+                return NextResponse.json({ success: false, error: "Verification code is required." }, { status: 400 });
+            }
+
+            const isValid = verifyAdminLoginOtp(cleanOtp);
+            if (!isValid) {
+                return NextResponse.json({ success: false, error: "Invalid or expired verification code. Please try again." }, { status: 401 });
+            }
+
+            // Issue Super Admin session token
+            const token = jwt.sign(
+                { id: 'admin_user', role: 'admin', name: 'Super Admin' },
+                JWT_SECRET,
+                { expiresIn: '7d', algorithm: 'HS256' }
+            );
+
+            const response = NextResponse.json({
+                success: true,
+                user: { id: 'admin_user', name: 'Super Admin', role: 'admin' },
+                deviceBound: true,
+                message: "Device successfully verified and bound."
+            });
+
+            // Set Admin session cookie
+            response.cookies.set('auth_token', token, {
+                httpOnly: true,
+                secure: process.env.NODE_ENV === 'production',
+                sameSite: 'lax',
+                path: '/',
+                maxAge: 60 * 60 * 24 * 7
+            });
+
+            // Automatically bind this new device for 1 year (no OTP on future logins)
+            await bindCurrentAdminDevice(response, userAgent, clientIp);
+
+            return response;
+        }
+
+        // 🔄 ADMIN RESEND OTP
+        if (action === 'admin_resend_otp') {
+            const otpRes = await sendAdminLoginOtp(clientIp);
+            if (!otpRes.success) {
+                return NextResponse.json({ success: false, error: otpRes.error || "Failed to resend code" }, { status: 500 });
+            }
+            return NextResponse.json({
+                success: true,
+                message: `New code dispatched to ${otpRes.maskedEmail}`
+            });
+        }
+
         const cleanId = sanitizeString(id, 50).toUpperCase();
         const cleanPassword = typeof password === 'string' ? password : '';
 
-        // 👑 Check for Admin Access with constant-time comparison
+        // 👑 2. CHECK FOR ADMIN ACCESS WITH HARDENED 2FA & DEVICE BINDING
         if (ADMIN_SECRET && action === 'login') {
             const isAdminId = timingSafeCompare(cleanId, 'ADMIN') || timingSafeCompare(cleanId, ADMIN_SECRET);
             const isAdminPass = timingSafeCompare(cleanPassword, ADMIN_SECRET) || (!cleanPassword && timingSafeCompare(cleanId, ADMIN_SECRET));
 
             if (isAdminId && isAdminPass) {
-                const token = jwt.sign(
-                    { id: 'admin_user', role: 'admin', name: 'Super Admin' },
-                    JWT_SECRET,
-                    { expiresIn: '7d', algorithm: 'HS256' }
-                );
+                // Check if this device is already trusted / bound
+                const isDeviceTrusted = await isAdminDeviceTrusted(request);
 
-                const response = NextResponse.json({
+                if (isDeviceTrusted) {
+                    console.log(`[Admin Auth] ✓ Recognized bound/trusted device from ${clientIp}. Logging in without OTP.`);
+                    const token = jwt.sign(
+                        { id: 'admin_user', role: 'admin', name: 'Super Admin' },
+                        JWT_SECRET,
+                        { expiresIn: '7d', algorithm: 'HS256' }
+                    );
+
+                    const response = NextResponse.json({
+                        success: true,
+                        user: { id: 'admin_user', name: 'Super Admin', role: 'admin' },
+                        deviceTrusted: true
+                    });
+
+                    response.cookies.set('auth_token', token, {
+                        httpOnly: true,
+                        secure: process.env.NODE_ENV === 'production',
+                        sameSite: 'lax',
+                        path: '/',
+                        maxAge: 60 * 60 * 24 * 7
+                    });
+
+                    return response;
+                }
+
+                // New / Untrusted Device: Send OTP to admin email from .env.local
+                console.log(`[Admin Auth] ⚠️ New device detected from ${clientIp}. Dispatching 2FA OTP to admin email...`);
+                const otpRes = await sendAdminLoginOtp(clientIp);
+
+                if (!otpRes.success) {
+                    return NextResponse.json({
+                        success: false,
+                        error: otpRes.error || "Failed to dispatch admin verification code to email."
+                    }, { status: 500 });
+                }
+
+                return NextResponse.json({
                     success: true,
-                    user: { id: 'admin_user', name: 'Super Admin', role: 'admin' }
+                    requireOtp: true,
+                    role: 'admin',
+                    email: otpRes.maskedEmail,
+                    message: `Security code sent to admin email (${otpRes.maskedEmail}). Please enter code to verify & bind this device.`
                 });
-
-                response.cookies.set('auth_token', token, {
-                    httpOnly: true,
-                    secure: process.env.NODE_ENV === 'production',
-                    sameSite: 'lax',
-                    path: '/',
-                    maxAge: 60 * 60 * 24 * 7
-                });
-
-                return response;
             }
         }
 

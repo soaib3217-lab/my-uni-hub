@@ -222,43 +222,84 @@ Questions should range from fundamental definitions to calculation problems and 
 }
 
 /**
- * Asynchronous Background Pre-generation.
- * Runs in the background when a file is uploaded to pre-generate both Cheat Sheet and Quiz
- * and save them to the database.
+ * Helper to run an async operation with automatic retry & exponential backoff
+ */
+async function withRetry<T>(
+    operationName: string, 
+    fn: () => Promise<T>, 
+    maxRetries = 3, 
+    initialDelayMs = 2000
+): Promise<T> {
+    let lastError: any;
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+        try {
+            return await fn();
+        } catch (err: any) {
+            lastError = err;
+            console.warn(`[AI Background] ${operationName} attempt ${attempt}/${maxRetries} failed:`, err?.message || err);
+            if (attempt < maxRetries) {
+                const waitTime = initialDelayMs * Math.pow(2, attempt - 1);
+                console.log(`[AI Background] Retrying ${operationName} in ${waitTime}ms...`);
+                await new Promise(r => setTimeout(r, waitTime));
+            }
+        }
+    }
+    throw lastError;
+}
+
+/**
+ * Asynchronous Background Pre-generation with Automatic Retries.
+ * Runs silently in the background when a file is uploaded to pre-generate both Cheat Sheet and Quiz
+ * and save them to the database. If any command fails, it automatically retries with backoff.
  */
 export async function pregenerateCourseAi(courseId: string, title: string, courseCode: string): Promise<void> {
     if (!courseId || !title) return;
 
     try {
-        console.log(`[AI Background] Starting pre-generation for Course ID: ${courseId} ("${title}")...`);
+        console.log(`[AI Background] 🚀 Starting automated pre-generation for Course ID: ${courseId} ("${title}")...`);
 
-        // Generate cheat sheet and quiz in parallel
+        // Check if already in cache before regenerating
+        const existing = await getCachedAiContent(courseId);
+        const needCheatSheet = !existing.cheatsheet;
+        const needQuiz = !existing.quiz || !Array.isArray(existing.quiz) || existing.quiz.length === 0;
+
+        if (!needCheatSheet && !needQuiz) {
+            console.log(`[AI Background] Course ${courseId} already has cheat sheet and quiz cached in database. Skipping.`);
+            return;
+        }
+
+        // Run both in parallel with automatic retries on failure
         const [cheatSheetResult, quizResult] = await Promise.allSettled([
-            generateCheatSheetContent(title, courseCode),
-            generateQuizContent(title, courseCode)
+            needCheatSheet 
+                ? withRetry("CheatSheetGeneration", () => generateCheatSheetContent(title, courseCode), 3, 2000)
+                : Promise.resolve(existing.cheatsheet as string),
+            needQuiz 
+                ? withRetry("QuizGeneration", () => generateQuizContent(title, courseCode), 3, 2000)
+                : Promise.resolve(existing.quiz as QuizQuestion[])
         ]);
 
         const toSave: { cheatsheet?: string; quiz?: QuizQuestion[] } = {};
 
-        if (cheatSheetResult.status === "fulfilled") {
+        if (cheatSheetResult.status === "fulfilled" && cheatSheetResult.value) {
             toSave.cheatsheet = cheatSheetResult.value;
-            console.log(`[AI Background] ✓ Cheat Sheet generated for: "${title}"`);
-        } else {
-            console.warn(`[AI Background] Cheat Sheet generation failed:`, cheatSheetResult.reason);
+            console.log(`[AI Background] ✓ Cheat Sheet successfully generated for: "${title}"`);
+        } else if (cheatSheetResult.status === "rejected") {
+            console.error(`[AI Background] ❌ Cheat Sheet generation failed after retries for: "${title}":`, cheatSheetResult.reason);
         }
 
-        if (quizResult.status === "fulfilled") {
+        if (quizResult.status === "fulfilled" && quizResult.value) {
             toSave.quiz = quizResult.value;
-            console.log(`[AI Background] ✓ Quiz generated for: "${title}"`);
-        } else {
-            console.warn(`[AI Background] Quiz generation failed:`, quizResult.reason);
+            console.log(`[AI Background] ✓ Practice Quiz successfully generated for: "${title}"`);
+        } else if (quizResult.status === "rejected") {
+            console.error(`[AI Background] ❌ Quiz generation failed after retries for: "${title}":`, quizResult.reason);
         }
 
         if (toSave.cheatsheet || toSave.quiz) {
             await saveCachedAiContent(courseId, toSave);
-            console.log(`[AI Background] ✓ Successfully saved AI data to database for: "${title}"`);
+            console.log(`[AI Background] 💾 AI content successfully persisted to database for: "${title}" (Course ID: ${courseId})`);
         }
     } catch (err) {
-        console.error(`[AI Background] Pre-generation error for ${courseId}:`, err);
+        console.error(`[AI Background] Fatal pre-generation error for ${courseId}:`, err);
     }
 }
+

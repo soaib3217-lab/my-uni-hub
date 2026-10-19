@@ -10,7 +10,7 @@ import {
     File, User, Lightbulb, Grid, Home as HomeIcon, MoreVertical, ExternalLink,
     Download, ArrowLeft, BarChart2, Users, Activity, Eye, Clock, RefreshCw,
     LogIn, Github,
-    Star, Share2, Calculator, BookOpen, Check
+    Star, Share2, Calculator, BookOpen, Check, ShieldCheck
 } from 'lucide-react';
 
 import ReactMarkdown from 'react-markdown';
@@ -246,9 +246,11 @@ export default function Home() {
     // Auth & Admin States
     const [currentUser, setCurrentUser] = useState<{ id: string, name: string, role?: string, traffic_count?: number, login_count?: number } | null>(null);
     const [showAdminModal, setShowAdminModal] = useState(false);
-    const [authMode, setAuthMode] = useState<'login' | 'register' | 'forgot_password' | 'reset_password'>('login');
+    const [authMode, setAuthMode] = useState<'login' | 'register' | 'forgot_password' | 'reset_password' | 'admin_otp'>('login');
     const [authForm, setAuthForm] = useState({ id: "", email: "", password: "", otp: "", newPassword: "" });
     const [isAuthLoading, setIsAuthLoading] = useState(false);
+    const [adminOtpEmail, setAdminOtpEmail] = useState<string>("");
+    const [resendCooldown, setResendCooldown] = useState<number>(0);
 
     // Auto-Login States
     const [autoLoginStatus, setAutoLoginStatus] = useState<'idle' | 'processing' | 'success' | 'failed'>('processing');
@@ -549,6 +551,8 @@ export default function Home() {
     function openLoginModal(mode: 'login' | 'register' = 'login') {
         setAuthMode(mode);
         setAuthForm({ id: "", email: "", password: "", otp: "", newPassword: "" });
+        setAdminOtpEmail("");
+        setResendCooldown(0);
         if (typeof window !== 'undefined') {
             localStorage.removeItem('statnotes_saved_id');
         }
@@ -684,22 +688,43 @@ export default function Home() {
         }
     }
 
-    // --- 🔒 SECURE LOGIN ---
+    // --- 🔒 SECURE LOGIN & ADMIN 2FA ---
     async function handleAuth() {
-        if (!authForm.id.trim()) return alert("Student ID is required.");
         setIsAuthLoading(true);
 
         try {
             let endpoint = '/api/auth';
-            let body: any = { id: authForm.id.trim() };
+            let body: any = {};
 
-            if (authMode === 'login' || authMode === 'register') {
+            if (authMode === 'admin_otp') {
+                if (!authForm.otp.trim()) {
+                    setIsAuthLoading(false);
+                    return alert("Please enter the 6-digit verification code sent to your email.");
+                }
+                body.action = 'admin_verify_otp';
+                body.otp = authForm.otp.trim();
+            } else if (authMode === 'login' || authMode === 'register') {
+                if (!authForm.id.trim()) {
+                    setIsAuthLoading(false);
+                    return alert("Student ID is required.");
+                }
+                body.id = authForm.id.trim();
                 body.action = authMode;
                 body.password = authForm.password.trim();
                 if (authMode === 'register') body.email = authForm.email.trim();
             } else if (authMode === 'forgot_password') {
+                if (!authForm.id.trim()) {
+                    setIsAuthLoading(false);
+                    return alert("Student ID is required.");
+                }
+                body.id = authForm.id.trim();
                 endpoint = '/api/auth/forgot-password';
             } else if (authMode === 'reset_password') {
+                if (!authForm.id.trim()) {
+                    setIsAuthLoading(false);
+                    return alert("Student ID is required.");
+                }
+                body.id = authForm.id.trim();
                 endpoint = '/api/auth/reset-password';
                 body.otp = authForm.otp.trim();
                 body.newPassword = authForm.newPassword.trim();
@@ -714,7 +739,15 @@ export default function Home() {
             const data = await response.json();
 
             if (data.success) {
-                if (authMode === 'login' || authMode === 'register') {
+                // 🔐 Admin 2FA triggered for a new / untrusted device
+                if (data.requireOtp) {
+                    setAuthMode('admin_otp');
+                    setAdminOtpEmail(data.email || 'Admin Email');
+                    setAuthForm(prev => ({ ...prev, otp: "" }));
+                    return;
+                }
+
+                if (authMode === 'login' || authMode === 'register' || authMode === 'admin_otp') {
                     setCurrentUser(data.user);
                     try {
                         localStorage.setItem('statnotes_user', JSON.stringify(data.user));
@@ -723,6 +756,8 @@ export default function Home() {
                     setAutoLoginStatus('idle');
                     setShowAdminModal(false);
                     setAuthForm({ id: "", email: "", password: "", otp: "", newPassword: "" });
+                    setAuthMode('login');
+                    setAdminOtpEmail("");
                 } else if (authMode === 'forgot_password') {
                     alert("OTP Sent! PLEASE CHECK YOUR SPAM/JUNK FOLDER if you don't see it in your inbox.");
                     setAuthMode('reset_password');
@@ -736,6 +771,38 @@ export default function Home() {
         } catch (error) {
             console.error("Auth Error:", error);
             alert("SYSTEM ERROR: CONNECTION FAILED");
+        } finally {
+            setIsAuthLoading(false);
+        }
+    }
+
+    async function handleResendAdminOtp() {
+        if (resendCooldown > 0) return;
+        setIsAuthLoading(true);
+        try {
+            const response = await fetch('/api/auth', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ action: 'admin_resend_otp' })
+            });
+            const data = await response.json();
+            if (data.success) {
+                alert(data.message || "New verification code dispatched!");
+                setResendCooldown(60);
+                const timer = setInterval(() => {
+                    setResendCooldown(prev => {
+                        if (prev <= 1) {
+                            clearInterval(timer);
+                            return 0;
+                        }
+                        return prev - 1;
+                    });
+                }, 1000);
+            } else {
+                alert("Failed to resend code: " + (data.error || "Please try again later."));
+            }
+        } catch {
+            alert("Connection error while requesting new code.");
         } finally {
             setIsAuthLoading(false);
         }
@@ -1000,6 +1067,20 @@ export default function Home() {
                 setUploadFile(null);
                 setDriveLink("");
                 fetchData();
+
+                // 🤖 Trigger silent background AI pre-generation for Cheat Sheet & Quiz (zero UI interruption)
+                if (courseData.course?.id) {
+                    fetch('/api/ai/pregenerate', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            courseId: courseData.course.id,
+                            title: courseData.course.title,
+                            courseCode: courseData.course.course_code
+                        }),
+                        keepalive: true
+                    }).catch(() => {});
+                }
             }
         } catch (error: any) {
             // 🛑 AUTOMATIC ROLLBACK ON EXCEPTION: Clean up file if uploaded to Drive before error occurred
@@ -2133,7 +2214,11 @@ export default function Home() {
                                 <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[80%] h-[1px] bg-gradient-to-r from-transparent via-white/30 to-transparent"></div>
 
                                 <h3 className="text-xl font-black mb-6 tracking-widest text-white uppercase drop-shadow-md">
-                                    {authMode === 'login' ? 'System Login' : authMode === 'register' ? 'Register Account' : authMode === 'forgot_password' ? 'Reset Request' : 'New Password'}
+                                    {authMode === 'login' ? 'System Login' 
+                                        : authMode === 'register' ? 'Register Account' 
+                                        : authMode === 'forgot_password' ? 'Reset Request' 
+                                        : authMode === 'admin_otp' ? 'Admin 2FA Verification'
+                                        : 'New Password'}
                                 </h3>
 
                                 <form onSubmit={(e) => { e.preventDefault(); handleAuth(); }}>
@@ -2157,6 +2242,47 @@ export default function Home() {
                                             </div>
                                         )}
 
+                                        {authMode === 'admin_otp' && (
+                                            <div className="space-y-3.5 text-center">
+                                                <div className="w-12 h-12 mx-auto rounded-2xl bg-cyan-500/15 border border-cyan-500/40 flex items-center justify-center text-cyan-400 shadow-[0_0_20px_rgba(6,182,212,0.3)]">
+                                                    <ShieldCheck size={24} />
+                                                </div>
+                                                <div>
+                                                    <h4 className="text-white font-bold text-sm tracking-wide">New Device Detected</h4>
+                                                    <p className="text-[11px] text-gray-300 mt-1 leading-relaxed">
+                                                        Enter the 6-digit verification code sent to <br/>
+                                                        <span className="text-cyan-400 font-mono font-semibold">{adminOtpEmail || 'admin email'}</span>
+                                                    </p>
+                                                </div>
+                                                <div className="bg-emerald-500/10 border border-emerald-500/25 rounded-xl p-2.5 text-[10px] text-emerald-300 leading-normal text-left">
+                                                    🔒 <strong>Device Binding:</strong> Once verified, this device is automatically trusted. Future logins from this browser will not require an OTP.
+                                                </div>
+                                                <div className="relative">
+                                                    <input 
+                                                        type="text" 
+                                                        placeholder="000000" 
+                                                        maxLength={6}
+                                                        autoFocus
+                                                        className="w-full bg-black/40 border border-cyan-500/40 px-3 py-3 rounded-xl text-white font-mono font-bold text-xl tracking-[0.4em] outline-none focus:border-cyan-400 focus:bg-black/60 transition-all text-center placeholder-white/20" 
+                                                        value={authForm.otp} 
+                                                        onChange={(e) => setAuthForm({ ...authForm, otp: e.target.value.replace(/\D/g, '') })} 
+                                                        disabled={isAuthLoading} 
+                                                    />
+                                                </div>
+                                                <div className="flex justify-between items-center text-[11px] px-1">
+                                                    <button
+                                                        type="button"
+                                                        onClick={handleResendAdminOtp}
+                                                        disabled={isAuthLoading || resendCooldown > 0}
+                                                        className="text-cyan-400 hover:text-cyan-300 disabled:opacity-50 transition-colors font-medium cursor-pointer"
+                                                    >
+                                                        {resendCooldown > 0 ? `Resend in ${resendCooldown}s` : "Resend Code"}
+                                                    </button>
+                                                    <span className="text-gray-500 font-mono text-[10px]">Expires in 10m</span>
+                                                </div>
+                                            </div>
+                                        )}
+
                                         {authMode === 'reset_password' && (
                                             <>
                                                 <p className="text-[11px] text-white/90 font-medium bg-white/10 border border-white/20 p-2 rounded-xl text-center leading-relaxed">
@@ -2173,15 +2299,17 @@ export default function Home() {
                                     </div>
 
                                     <div className="flex gap-3 mb-4">
-                                        <button type="button" onClick={() => { setShowAdminModal(false); setAuthMode('login'); }} disabled={isAuthLoading} className="flex-1 py-3 rounded-xl bg-white/5 hover:bg-white/10 text-white transition-colors text-xs font-bold tracking-wider uppercase border border-white/10">Abort</button>
+                                        <button type="button" onClick={() => { setShowAdminModal(false); setAuthMode('login'); setAdminOtpEmail(""); }} disabled={isAuthLoading} className="flex-1 py-3 rounded-xl bg-white/5 hover:bg-white/10 text-white transition-colors text-xs font-bold tracking-wider uppercase border border-white/10">Abort</button>
                                         <button type="submit" disabled={isAuthLoading} className="flex-1 flex justify-center items-center py-3 rounded-xl bg-white/20 hover:bg-white/30 text-white transition text-xs font-bold tracking-wider border border-white/20 shadow-sm uppercase">
-                                            {isAuthLoading ? <Loader2 size={16} className="animate-spin" /> : "Execute"}
+                                            {isAuthLoading ? <Loader2 size={16} className="animate-spin" /> : (authMode === 'admin_otp' ? "Verify & Bind" : "Execute")}
                                         </button>
                                     </div>
                                 </form>
 
                                 <div className="flex flex-col gap-3 mt-4 pt-4 border-t border-white/10">
-                                    {authMode === 'login' ? (
+                                    {authMode === 'admin_otp' ? (
+                                        <button onClick={() => { setAuthMode('login'); setAdminOtpEmail(""); setAuthForm({ id: "", email: "", password: "", otp: "", newPassword: "" }); }} className="text-[10px] text-gray-400 hover:text-white uppercase tracking-widest font-medium transition-colors">Back to Login</button>
+                                    ) : authMode === 'login' ? (
                                         <>
                                             <button onClick={() => setAuthMode('register')} className="w-full py-3 rounded-xl border border-white/20 bg-white/5 hover:bg-white/10 text-white text-xs font-bold uppercase tracking-widest shadow-sm transition-all">Create New Account</button>
                                             <button onClick={() => setAuthMode('forgot_password')} className="text-[10px] text-gray-400 hover:text-white uppercase tracking-widest font-medium mt-1 transition-colors">Forgot Password?</button>

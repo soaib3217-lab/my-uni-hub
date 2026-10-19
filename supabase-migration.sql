@@ -83,3 +83,22 @@ ALTER TABLE courses
 ADD COLUMN IF NOT EXISTS ai_cheatsheet TEXT,
 ADD COLUMN IF NOT EXISTS ai_quiz JSONB;
 
+-- ------------------------------------------------------------------------------
+-- 9. ADMIN TRUSTED DEVICES (AUTOMATIC HARDWARE BINDING & 2FA)
+-- ------------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS admin_trusted_devices (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    device_token TEXT NOT NULL UNIQUE,
+    user_agent TEXT,
+    ip_address TEXT,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    last_used_at TIMESTAMPTZ DEFAULT NOW(),
+    expires_at TIMESTAMPTZ DEFAULT (NOW() + INTERVAL '1 year')
+);
+
+CREATE INDEX IF NOT EXISTS idx_admin_trusted_devices_token ON admin_trusted_devices(device_token);
+
+ALTER TABLE admin_trusted_devices ENABLE ROW LEVEL SECURITY;
+-- Purely server-side service_role access. No public policies.
+
+

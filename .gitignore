@@ -40,5 +40,6 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 
-# scratch
+# scratch & local admin security
 /scratch
+.admin_*.json
