@@ -77,11 +77,12 @@ DROP POLICY IF EXISTS "Public traffic logs viewable" ON traffic_logs;
 DROP POLICY IF EXISTS "Public traffic logs insert" ON traffic_logs;
 
 -- ------------------------------------------------------------------------------
--- 8. AI CHEAT SHEET & QUIZ PRE-GENERATION COLUMNS ON COURSES
+-- 8. AI CHEAT SHEET, QUIZ & FLASHCARDS COLUMNS ON COURSES
 -- ------------------------------------------------------------------------------
 ALTER TABLE courses 
 ADD COLUMN IF NOT EXISTS ai_cheatsheet TEXT,
-ADD COLUMN IF NOT EXISTS ai_quiz JSONB;
+ADD COLUMN IF NOT EXISTS ai_quiz JSONB,
+ADD COLUMN IF NOT EXISTS ai_flashcards JSONB;
 
 -- ------------------------------------------------------------------------------
 -- 9. ADMIN TRUSTED DEVICES (AUTOMATIC HARDWARE BINDING & 2FA)
@@ -100,5 +101,26 @@ CREATE INDEX IF NOT EXISTS idx_admin_trusted_devices_token ON admin_trusted_devi
 
 ALTER TABLE admin_trusted_devices ENABLE ROW LEVEL SECURITY;
 -- Purely server-side service_role access. No public policies.
+
+-- ------------------------------------------------------------------------------
+-- 10. TRAFFIC LOGS 30-DAY RETENTION INDEX & STORED PROCEDURE
+-- ------------------------------------------------------------------------------
+CREATE INDEX IF NOT EXISTS idx_traffic_logs_visited_at ON traffic_logs(visited_at);
+CREATE INDEX IF NOT EXISTS idx_traffic_logs_student_visited ON traffic_logs(student_id, visited_at);
+
+-- Automated procedure to prune logs older than 30 days while preserving lifetime
+-- `traffic_count` and `last_visited_at` in the `students` table:
+CREATE OR REPLACE FUNCTION prune_old_traffic_logs()
+RETURNS INTEGER AS $$
+DECLARE
+    deleted_rows INTEGER;
+BEGIN
+    DELETE FROM traffic_logs
+    WHERE visited_at < NOW() - INTERVAL '30 days';
+    GET DIAGNOSTICS deleted_rows = ROW_COUNT;
+    RETURN deleted_rows;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
 
 

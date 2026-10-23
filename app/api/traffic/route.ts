@@ -93,9 +93,19 @@ export async function POST(request: Request) {
                     visited_at: now,
                     user_agent: userAgent
                 });
+
+            // 4. 🧹 30-Day Auto-Prune: Delete detailed audit records older than 30 days.
+            // NOTE: Total lifetime `traffic_count` and `last_visited_at` in the `students` table are saved forever!
+            const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+            await supabaseServer
+                .from('traffic_logs')
+                .delete()
+                .eq('student_id', studentId)
+                .lt('visited_at', thirtyDaysAgo);
+
         } catch (logErr) {
             // Non-fatal if traffic_logs table has not been migrated yet
-            console.warn('Could not insert to traffic_logs table:', logErr);
+            console.warn('Could not insert or prune traffic_logs table:', logErr);
         }
 
         return NextResponse.json({

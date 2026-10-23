@@ -10,7 +10,8 @@ import {
     File, User, Lightbulb, Grid, Home as HomeIcon, MoreVertical, ExternalLink,
     Download, ArrowLeft, BarChart2, Users, Activity, Eye, Clock, RefreshCw,
     LogIn, Github,
-    Star, Share2, Calculator, BookOpen, Check, ShieldCheck
+    Star, Share2, Calculator, BookOpen, Check, ShieldCheck,
+    Layers
 } from 'lucide-react';
 
 import ReactMarkdown from 'react-markdown';
@@ -21,6 +22,7 @@ import 'katex/dist/katex.min.css';
 import GpaCalculatorModal from '@/components/GpaCalculatorModal';
 import QuizModal from '@/components/QuizModal';
 import CheatSheetModal from '@/components/CheatSheetModal';
+import FlashcardsModal from '@/components/FlashcardsModal';
 
 // --- CONFIGURATION ---
 const supabase = createClient(
@@ -182,7 +184,7 @@ const FileThumbnail = ({ url, fileTitle }: { url: string, fileTitle: string }) =
             {/* Shimmer skeleton while image streams in */}
             {!isLoaded && (
                 <div className="absolute inset-0 bg-white/[0.03] animate-pulse flex items-center justify-center">
-                    <div className="w-6 h-6 rounded-full border-2 border-cyan-400/20 border-t-cyan-400 animate-spin"></div>
+                    <motion.div animate={{ rotate: 360 }} transition={{ duration: 1, repeat: Infinity, ease: "linear" }} className="w-6 h-6 rounded-full border-2 border-cyan-400/20 border-t-cyan-400"></motion.div>
                 </div>
             )}
             <img
@@ -238,10 +240,14 @@ export default function Home() {
 
     // Chat States
     const [chatInput, setChatInput] = useState("");
-    const [chatHistory, setChatHistory] = useState<{ role: string, text: string }[]>([]);
+    const [chatHistory, setChatHistory] = useState<{ role: string, text: string, modelUsed?: string, pdfAnalyzed?: boolean }[]>([]);
+    const [selectedAiModel, setSelectedAiModel] = useState<'auto' | 'claude' | 'llama' | 'gemini'>('auto');
     const [isAiLoading, setIsAiLoading] = useState(false);
     const [suggestedQuestions, setSuggestedQuestions] = useState<string[]>([]);
     const chatScrollRef = useRef<HTMLDivElement>(null);
+
+    // 🛡️ Super Admin Protection States
+    const [allowFileDeletion, setAllowFileDeletion] = useState(false);
 
     // Auth & Admin States
     const [currentUser, setCurrentUser] = useState<{ id: string, name: string, role?: string, traffic_count?: number, login_count?: number } | null>(null);
@@ -300,7 +306,10 @@ export default function Home() {
     const [showGpaModal, setShowGpaModal] = useState(false);
     const [showQuizModal, setShowQuizModal] = useState(false);
     const [showCheatSheetModal, setShowCheatSheetModal] = useState(false);
+    const [showFlashcardsModal, setShowFlashcardsModal] = useState(false);
+    const [aiNotice, setAiNotice] = useState<string | null>(null);
     const [shareCopied, setShareCopied] = useState(false);
+    const [copiedFileId, setCopiedFileId] = useState<string | null>(null);
 
     // 👥 Admin Student Roster Management States
     const [adminActiveTab, setAdminActiveTab] = useState<'analytics' | 'roster'>('analytics');
@@ -332,12 +341,40 @@ export default function Home() {
         });
     };
 
-    const handleCopyShareLink = (fileId: string) => {
+    const handleCopyShareLink = (fileId: string, directUrl?: string) => {
         if (typeof window === 'undefined') return;
-        const url = `${window.location.origin}${window.location.pathname}?file=${fileId}`;
-        navigator.clipboard.writeText(url);
+        const file = files.find(f => f.id === fileId);
+        const driveUrl = directUrl || file?.pdf_url;
+        const urlToCopy = driveUrl || `${window.location.origin}${window.location.pathname}?file=${fileId}`;
+
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+            navigator.clipboard.writeText(urlToCopy).catch(() => {
+                const textarea = document.createElement('textarea');
+                textarea.value = urlToCopy;
+                textarea.style.position = 'fixed';
+                textarea.style.opacity = '0';
+                document.body.appendChild(textarea);
+                textarea.select();
+                try { document.execCommand('copy'); } catch (_) {}
+                document.body.removeChild(textarea);
+            });
+        } else {
+            const textarea = document.createElement('textarea');
+            textarea.value = urlToCopy;
+            textarea.style.position = 'fixed';
+            textarea.style.opacity = '0';
+            document.body.appendChild(textarea);
+            textarea.select();
+            try { document.execCommand('copy'); } catch (_) {}
+            document.body.removeChild(textarea);
+        }
+
         setShareCopied(true);
-        setTimeout(() => setShareCopied(false), 2000);
+        setCopiedFileId(fileId);
+        setTimeout(() => {
+            setShareCopied(false);
+            setCopiedFileId(null);
+        }, 2000);
     };
 
     // 👥 Admin Roster Handlers
@@ -512,10 +549,24 @@ export default function Home() {
             if (saved) {
                 setCurrentUser(JSON.parse(saved));
             }
+            const savedDeleteToggle = localStorage.getItem('statnotes_allow_file_deletion');
+            if (savedDeleteToggle !== null) {
+                setAllowFileDeletion(savedDeleteToggle === 'true');
+            }
         } catch {}
         fetchData();
         attemptAutoLogin();
     }, []);
+
+    const handleToggleFileDeletion = () => {
+        setAllowFileDeletion(prev => {
+            const next = !prev;
+            try {
+                localStorage.setItem('statnotes_allow_file_deletion', String(next));
+            } catch {}
+            return next;
+        });
+    };
 
     async function attemptAutoLogin() {
         setAutoLoginStatus('processing');
@@ -578,6 +629,7 @@ export default function Home() {
                 setIsHeaderMenuOpen(false);
                 setShowCheatSheetModal(false);
                 setShowQuizModal(false);
+                setShowFlashcardsModal(false);
             } else if (event.state?.fileViewer && event.state?.fileId) {
                 if (!currentUser) {
                     setSelectedFile(null);
@@ -588,6 +640,7 @@ export default function Home() {
                 if (targetFile) {
                     setShowCheatSheetModal(false);
                     setShowQuizModal(false);
+                    setShowFlashcardsModal(false);
                     setSelectedFile(targetFile);
                 }
             }
@@ -605,13 +658,23 @@ export default function Home() {
             setIsHeaderMenuOpen(false);
             setShowCheatSheetModal(false);
             setShowQuizModal(false);
+            setShowFlashcardsModal(false);
+
+            // ⚡ Fast preview reveal: Google Drive iframe background telemetry can delay onLoad by 10s+.
+            // Automatically clear the loading screen after 1.5s so user never waits unnecessarily.
+            const timer = setTimeout(() => {
+                setIframeLoading(false);
+            }, 1500);
+
+            return () => clearTimeout(timer);
         } else {
             setIsAiOpen(false);
             setIsHeaderMenuOpen(false);
             setShowCheatSheetModal(false);
             setShowQuizModal(false);
+            setShowFlashcardsModal(false);
         }
-    }, [selectedFile]);
+    }, [selectedFile?.id]);
 
     // 🔒 Stop Guest Read: ensure guests cannot view PDF documents if logged out
     useEffect(() => {
@@ -628,16 +691,19 @@ export default function Home() {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                    message: `Generate 3 short, curious questions I might ask a tutor about "${title}". Return ONLY the questions separated by pipes (|).`,
-                    context: null
+                    message: `Generate 3 short, curious questions I might ask a tutor about this course document "${title}". Return ONLY the questions separated by pipes (|).`,
+                    context: title,
+                    pdfUrl: selectedFile?.pdf_url || null,
+                    courseCode: selectedFile?.course_code || null,
+                    model: selectedAiModel
                 })
             });
 
             const data = await response.json();
             if (data.error) throw new Error(data.error);
 
-            const questions = data.text.split('|').slice(0, 3);
-            setSuggestedQuestions(questions);
+            const questions = data.text.split('|').map((q: string) => q.trim().replace(/^["'\d\.\-\s]+/, '').replace(/["']+$/, '')).filter(Boolean).slice(0, 3);
+            setSuggestedQuestions(questions.length ? questions : ["Summarize key concepts", "Explain the main formulas", "Quiz me on this note"]);
         } catch (e) {
             console.error("Suggestion Error:", e);
             setSuggestedQuestions(["Summarize this", "Explain key concepts", "Quiz me"]);
@@ -659,14 +725,22 @@ export default function Home() {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     message: messageToSend,
-                    context: selectedFile?.title || null
+                    context: selectedFile?.title || null,
+                    pdfUrl: selectedFile?.pdf_url || null,
+                    courseCode: selectedFile?.course_code || null,
+                    model: selectedAiModel
                 })
             });
 
             const data = await response.json();
             if (data.error) throw new Error(data.error);
 
-            setChatHistory(prev => [...prev, { role: "bot", text: data.text }]);
+            setChatHistory(prev => [...prev, { 
+                role: "bot", 
+                text: data.text, 
+                modelUsed: data.modelUsed,
+                pdfAnalyzed: data.pdfAnalyzed 
+            }]);
         } catch (error) {
             console.error("AI Error:", error);
             setChatHistory(prev => [...prev, { role: "bot", text: "⚠️ SYSTEM ERROR. CONNECTION LOST." }]);
@@ -1079,18 +1153,34 @@ export default function Home() {
                 setDriveLink("");
                 fetchData();
 
-                // 🤖 Trigger silent background AI pre-generation for Cheat Sheet & Quiz (zero UI interruption)
+                // 🤖 Trigger automated AI pre-generation (Cheat Sheet, Quiz & Flashcards)
                 if (courseData.course?.id) {
+                    const uploadedTitle = courseData.course.title || newFileTitle;
+                    setAiNotice(`✨ Generating AI Cheat Sheet, Quiz & Flashcards for "${uploadedTitle}"...`);
+
                     fetch('/api/ai/pregenerate', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({
                             courseId: courseData.course.id,
-                            title: courseData.course.title,
-                            courseCode: courseData.course.course_code
-                        }),
-                        keepalive: true
-                    }).catch(() => {});
+                            title: uploadedTitle,
+                            courseCode: courseData.course.course_code || targetFolderCode
+                        })
+                    })
+                    .then(res => res.json())
+                    .then(pregenData => {
+                        if (pregenData.success) {
+                            setAiNotice(`✅ AI Study Suite ready for "${uploadedTitle}"!`);
+                            fetchData(); // Refresh file cache in UI
+                            setTimeout(() => setAiNotice(null), 5000);
+                        } else {
+                            setTimeout(() => setAiNotice(null), 3000);
+                        }
+                    })
+                    .catch(pregenErr => {
+                        console.warn("Background AI pregeneration notice:", pregenErr);
+                        setTimeout(() => setAiNotice(null), 3000);
+                    });
                 }
             }
         } catch (error: any) {
@@ -1115,6 +1205,10 @@ export default function Home() {
     }
 
     async function handleDeleteFile(file: any) {
+        if (!allowFileDeletion) {
+            return alert("PROTECTION LOCK ACTIVE: File deletion is currently disabled. Please enable 'File Deletion' in the Super Admin panel to delete files.");
+        }
+
         if (!confirm("Confirm Deletion? This action is irreversible.")) return;
 
         if (currentUser?.role !== 'admin' && file.uploader !== currentUser?.name) {
@@ -1251,10 +1345,52 @@ export default function Home() {
 
     return (
         <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.5, ease: "easeOut" }} className="flex h-[100dvh] bg-transparent text-gray-100 font-sans overflow-hidden relative">
-            {/* Super fast animated background blobs (using radial gradients instead of expensive CSS blur) */}
-            <div className="absolute top-[-20%] left-[-10%] w-[70vw] h-[70vw] bg-[radial-gradient(circle_at_center,rgba(79,70,229,0.15)_0%,transparent_60%)] animate-blob pointer-events-none -z-10"></div>
-            <div className="absolute top-[10%] right-[-10%] w-[60vw] h-[60vw] bg-[radial-gradient(circle_at_center,rgba(147,51,234,0.12)_0%,transparent_60%)] animate-blob animation-delay-2000 pointer-events-none -z-10"></div>
-            <div className="absolute bottom-[-30%] left-[10%] w-[80vw] h-[80vw] bg-[radial-gradient(circle_at_center,rgba(37,99,235,0.12)_0%,transparent_60%)] animate-blob animation-delay-4000 pointer-events-none -z-10"></div>
+            {/* 🌀 Glowing Circular Background Gradient Blobs (Continuous Fluid Motion with Staggered Delays) */}
+            <motion.div
+                animate={{
+                    x: [0, 50, -40, 0],
+                    y: [0, -50, 40, 0],
+                    scale: [1, 1.15, 0.92, 1],
+                }}
+                transition={{
+                    duration: 9,
+                    repeat: Infinity,
+                    repeatType: "mirror",
+                    ease: "easeInOut",
+                    delay: 0,
+                }}
+                className="absolute top-[-20%] left-[-10%] w-[70vw] h-[70vw] rounded-full bg-[radial-gradient(circle_at_center,rgba(79,70,229,0.28)_0%,transparent_65%)] pointer-events-none z-0"
+            />
+            <motion.div
+                animate={{
+                    x: [0, -45, 45, 0],
+                    y: [0, 45, -40, 0],
+                    scale: [1, 1.1, 0.94, 1],
+                }}
+                transition={{
+                    duration: 11,
+                    repeat: Infinity,
+                    repeatType: "mirror",
+                    ease: "easeInOut",
+                    delay: 1.5,
+                }}
+                className="absolute top-[10%] right-[-10%] w-[60vw] h-[60vw] rounded-full bg-[radial-gradient(circle_at_center,rgba(147,51,234,0.24)_0%,transparent_65%)] pointer-events-none z-0"
+            />
+            <motion.div
+                animate={{
+                    x: [0, 45, -50, 0],
+                    y: [0, -40, 45, 0],
+                    scale: [1, 1.16, 0.94, 1],
+                }}
+                transition={{
+                    duration: 13,
+                    repeat: Infinity,
+                    repeatType: "mirror",
+                    ease: "easeInOut",
+                    delay: 3,
+                }}
+                className="absolute bottom-[-30%] left-[10%] w-[80vw] h-[80vw] rounded-full bg-[radial-gradient(circle_at_center,rgba(37,99,235,0.24)_0%,transparent_65%)] pointer-events-none z-0"
+            />
 
             <AnimatePresence>
                 {isMobileMenuOpen && (
@@ -1326,7 +1462,7 @@ export default function Home() {
                     )}
                 </div>
 
-                <div className="flex-1 overflow-y-auto p-3 space-y-1 custom-scrollbar pb-20" style={{ transform: 'translateZ(0)', willChange: 'transform' }}>
+                <div className="flex-1 overflow-y-auto p-3 space-y-1 custom-scrollbar pb-20">
                     {!currentUser && (
                         <div className="p-3 mb-3 rounded-2xl bg-cyan-500/10 border border-cyan-500/30 flex items-center justify-between gap-2 shadow-[0_0_15px_rgba(6,182,212,0.1)]">
                             <div className="flex items-center gap-2">
@@ -1422,8 +1558,8 @@ export default function Home() {
                                                                                                             </span>
                                                                                                         )}
                                                                                                     </button>
-                                                                                                    {currentUser && (
-                                                                                                        <button onClick={() => handleDeleteFile(file)} className="absolute right-1 top-1.5 p-1 text-red-400 opacity-0 group-hover:opacity-100 hover:bg-red-500/20 rounded transition-colors">
+                                                                                                    {currentUser && allowFileDeletion && (currentUser.role === 'admin' || file.uploader === currentUser.name) && (
+                                                                                                        <button onClick={() => handleDeleteFile(file)} title="Delete file" className="absolute right-1 top-1.5 p-1 text-red-400 opacity-0 group-hover:opacity-100 hover:bg-red-500/20 rounded transition-all btn-smooth">
                                                                                                             <Trash2 size={10} />
                                                                                                         </button>
                                                                                                     )}
@@ -1585,59 +1721,84 @@ export default function Home() {
                                     <span className="text-sm font-bold text-gray-100 truncate mt-0.5 tracking-wide">{selectedFile.title}</span>
                                 </div>
 
-                                {/* Desktop Actions */}
-                                <div className="hidden md:flex items-center gap-2 ml-2">
+                                {/* Desktop Actions: Sleek Icon Buttons with Smooth Hover Delay Reveal */}
+                                <div className="hidden md:flex items-center gap-1.5 ml-auto shrink-0">
                                     <button
                                         onClick={() => toggleBookmark(selectedFile.id)}
-                                        className={`inline-flex items-center gap-1.5 text-[11px] font-bold whitespace-nowrap border px-3 py-2 rounded-xl transition tracking-wide shadow-sm active:scale-95 ${
+                                        className={`group relative inline-flex items-center border p-2.5 hover:px-3 rounded-xl transition-all duration-300 ease-out delay-0 group-hover:delay-150 shadow-sm active:scale-95 ${
                                             bookmarks.includes(selectedFile.id)
                                                 ? 'border-amber-500/50 bg-amber-500/15 text-amber-300 shadow-[0_0_15px_rgba(245,158,11,0.2)]'
-                                                : 'border-white/20 bg-white/5 hover:bg-white/10 text-gray-300'
+                                                : 'border-white/15 bg-white/5 hover:bg-white/10 text-gray-400 hover:text-white'
                                         }`}
-                                        title={bookmarks.includes(selectedFile.id) ? "Remove from bookmarks" : "Star / Bookmark Note"}
+                                        title={bookmarks.includes(selectedFile.id) ? "Saved in Bookmarks" : "Bookmark Note"}
                                     >
-                                        <Star size={13} className={bookmarks.includes(selectedFile.id) ? "fill-amber-400 text-amber-400" : ""} />
-                                        <span>{bookmarks.includes(selectedFile.id) ? 'SAVED' : 'STAR'}</span>
+                                        <Star size={16} className={`shrink-0 transition-transform duration-200 group-hover:scale-110 ${bookmarks.includes(selectedFile.id) ? "fill-amber-400 text-amber-400" : ""}`} />
+                                        <span className="max-w-0 overflow-hidden whitespace-nowrap opacity-0 group-hover:max-w-xs group-hover:opacity-100 group-hover:ml-1.5 transition-all duration-300 ease-out delay-0 group-hover:delay-150 text-[11px] font-bold uppercase pointer-events-none">
+                                            {bookmarks.includes(selectedFile.id) ? 'Saved' : 'Bookmark'}
+                                        </span>
                                     </button>
 
                                     <button
-                                        onClick={() => handleCopyShareLink(selectedFile.id)}
-                                        className="inline-flex items-center gap-1.5 text-[11px] font-bold whitespace-nowrap border border-white/20 bg-white/5 hover:bg-white/10 text-gray-200 px-3 py-2 rounded-xl transition tracking-wide shadow-sm active:scale-95"
-                                        title="Copy Direct Share Link"
+                                        onClick={() => handleCopyShareLink(selectedFile.id, selectedFile.pdf_url)}
+                                        className="group relative inline-flex items-center border border-white/15 bg-white/5 hover:bg-white/10 text-gray-200 p-2.5 hover:px-3 rounded-xl transition-all duration-300 ease-out delay-0 group-hover:delay-150 shadow-sm active:scale-95"
+                                        title="Copy Drive Link"
                                     >
-                                        {shareCopied ? <Check size={13} className="text-emerald-400" /> : <Share2 size={13} className="text-cyan-400" />}
-                                        <span>{shareCopied ? 'COPIED!' : 'SHARE'}</span>
+                                        {shareCopied ? (
+                                            <Check size={16} className="text-emerald-400 shrink-0 transition-transform duration-200 group-hover:scale-110" />
+                                        ) : (
+                                            <Share2 size={16} className="text-cyan-400 shrink-0 transition-transform duration-200 group-hover:scale-110" />
+                                        )}
+                                        <span className="max-w-0 overflow-hidden whitespace-nowrap opacity-0 group-hover:max-w-xs group-hover:opacity-100 group-hover:ml-1.5 transition-all duration-300 ease-out delay-0 group-hover:delay-150 text-[11px] font-bold uppercase pointer-events-none">
+                                            {shareCopied ? 'Copied!' : 'Share'}
+                                        </span>
                                     </button>
 
                                     <button
                                         onClick={() => setShowCheatSheetModal(true)}
-                                        className="inline-flex items-center gap-1.5 text-[11px] font-bold whitespace-nowrap border border-amber-500/40 bg-amber-500/10 hover:bg-amber-500/25 text-amber-300 px-3 py-2 rounded-xl transition tracking-wide shadow-[0_0_15px_rgba(245,158,11,0.15)] active:scale-95"
-                                        title="Generate 1-Page Exam Cheat Sheet with Gemini"
+                                        className="group relative inline-flex items-center border border-amber-500/40 bg-amber-500/10 hover:bg-amber-500/25 text-amber-300 p-2.5 hover:px-3 rounded-xl transition-all duration-300 ease-out delay-0 group-hover:delay-150 shadow-[0_0_15px_rgba(245,158,11,0.15)] active:scale-95"
+                                        title="Exam Cheat Sheet"
                                     >
-                                        <BookOpen size={13} className="text-amber-400" />
-                                        <span>CHEAT SHEET</span>
+                                        <BookOpen size={16} className="text-amber-400 shrink-0 transition-transform duration-200 group-hover:scale-110" />
+                                        <span className="max-w-0 overflow-hidden whitespace-nowrap opacity-0 group-hover:max-w-xs group-hover:opacity-100 group-hover:ml-1.5 transition-all duration-300 ease-out delay-0 group-hover:delay-150 text-[11px] font-bold uppercase pointer-events-none">
+                                            Cheat Sheet
+                                        </span>
                                     </button>
 
                                     <button
                                         onClick={() => setShowQuizModal(true)}
-                                        className="inline-flex items-center gap-1.5 text-[11px] font-bold whitespace-nowrap border border-emerald-500/40 bg-emerald-500/10 hover:bg-emerald-500/25 text-emerald-300 px-3 py-2 rounded-xl transition tracking-wide shadow-[0_0_15px_rgba(16,185,129,0.15)] active:scale-95"
-                                        title="Generate 5-Question AI Practice Quiz with Gemini"
+                                        className="group relative inline-flex items-center border border-emerald-500/40 bg-emerald-500/10 hover:bg-emerald-500/25 text-emerald-300 p-2.5 hover:px-3 rounded-xl transition-all duration-300 ease-out delay-0 group-hover:delay-150 shadow-[0_0_15px_rgba(16,185,129,0.15)] active:scale-95"
+                                        title="Take Practice Quiz"
                                     >
-                                        <Sparkles size={13} className="text-emerald-400" />
-                                        <span>QUIZ ME</span>
+                                        <Sparkles size={16} className="text-emerald-400 shrink-0 transition-transform duration-200 group-hover:scale-110" />
+                                        <span className="max-w-0 overflow-hidden whitespace-nowrap opacity-0 group-hover:max-w-xs group-hover:opacity-100 group-hover:ml-1.5 transition-all duration-300 ease-out delay-0 group-hover:delay-150 text-[11px] font-bold uppercase pointer-events-none">
+                                            Quiz Me
+                                        </span>
+                                    </button>
+
+                                    <button
+                                        onClick={() => setShowFlashcardsModal(true)}
+                                        className="group relative inline-flex items-center border border-cyan-500/40 bg-cyan-500/10 hover:bg-cyan-500/25 text-cyan-300 p-2.5 hover:px-3 rounded-xl transition-all duration-300 ease-out delay-0 group-hover:delay-150 shadow-[0_0_15px_rgba(6,182,212,0.15)] active:scale-95"
+                                        title="Interactive AI Flashcards"
+                                    >
+                                        <Layers size={16} className="text-cyan-400 shrink-0 transition-transform duration-200 group-hover:scale-110" />
+                                        <span className="max-w-0 overflow-hidden whitespace-nowrap opacity-0 group-hover:max-w-xs group-hover:opacity-100 group-hover:ml-1.5 transition-all duration-300 ease-out delay-0 group-hover:delay-150 text-[11px] font-bold uppercase pointer-events-none">
+                                            Flashcards
+                                        </span>
                                     </button>
 
                                     <button
                                         onClick={() => setIsAiOpen(!isAiOpen)}
-                                        className={`inline-flex items-center gap-1.5 text-[11px] font-bold whitespace-nowrap border px-3 py-2 rounded-xl transition tracking-wide shadow-sm active:scale-95 ${
+                                        className={`group relative inline-flex items-center border p-2.5 hover:px-3 rounded-xl transition-all duration-300 ease-out delay-0 group-hover:delay-150 shadow-sm active:scale-95 ${
                                             isAiOpen
                                                 ? 'border-fuchsia-500/50 bg-fuchsia-500/20 text-fuchsia-200 shadow-[0_0_15px_rgba(217,70,239,0.3)]'
                                                 : 'border-fuchsia-500/40 bg-fuchsia-500/10 hover:bg-fuchsia-500/20 text-fuchsia-300'
                                         }`}
                                         title="Toggle AI Tutor"
                                     >
-                                        <MessageSquare size={13} className="text-fuchsia-400" />
-                                        <span>AI TUTOR</span>
+                                        <MessageSquare size={16} className="text-fuchsia-400 shrink-0 transition-transform duration-200 group-hover:scale-110" />
+                                        <span className="max-w-0 overflow-hidden whitespace-nowrap opacity-0 group-hover:max-w-xs group-hover:opacity-100 group-hover:ml-1.5 transition-all duration-300 ease-out delay-0 group-hover:delay-150 text-[11px] font-bold uppercase pointer-events-none">
+                                            AI Tutor
+                                        </span>
                                     </button>
 
                                     <a
@@ -1651,11 +1812,13 @@ export default function Home() {
                                                 openLoginModal('login');
                                             }
                                         }}
-                                        className="inline-flex items-center gap-1.5 text-[11px] font-bold whitespace-nowrap border border-cyan-500/40 bg-cyan-500/10 hover:bg-cyan-500/25 text-cyan-200 hover:text-white px-3 py-2 rounded-xl transition-all tracking-wide shadow-[0_0_15px_rgba(6,182,212,0.15)] hover:shadow-[0_0_20px_rgba(6,182,212,0.3)] active:scale-95"
-                                        title={currentUser ? "Direct Download File" : "Login to Download"}
+                                        className="group relative inline-flex items-center border border-cyan-500/40 bg-cyan-500/10 hover:bg-cyan-500/25 text-cyan-200 hover:text-white p-2.5 hover:px-3 rounded-xl transition-all duration-300 ease-out delay-0 group-hover:delay-150 shadow-[0_0_15px_rgba(6,182,212,0.15)] active:scale-95"
+                                        title={currentUser ? "Download File" : "Login to Download"}
                                     >
-                                        <Download size={13} className="text-cyan-400" />
-                                        <span>DOWNLOAD</span>
+                                        <Download size={16} className="text-cyan-400 shrink-0 transition-transform duration-200 group-hover:scale-110" />
+                                        <span className="max-w-0 overflow-hidden whitespace-nowrap opacity-0 group-hover:max-w-xs group-hover:opacity-100 group-hover:ml-1.5 transition-all duration-300 ease-out delay-0 group-hover:delay-150 text-[11px] font-bold uppercase pointer-events-none">
+                                            Download
+                                        </span>
                                     </a>
 
                                     <a
@@ -1668,11 +1831,13 @@ export default function Home() {
                                                 openLoginModal('login');
                                             }
                                         }}
-                                        className="inline-flex items-center gap-1.5 text-[11px] text-white font-bold whitespace-nowrap border border-white/20 bg-white/5 hover:bg-white/10 px-3 py-2 rounded-xl transition tracking-wide shadow-sm"
+                                        className="group relative inline-flex items-center border border-white/15 bg-white/5 hover:bg-white/10 text-neutral-300 hover:text-white p-2.5 hover:px-3 rounded-xl transition-all duration-300 ease-out delay-0 group-hover:delay-150 shadow-sm active:scale-95"
                                         title={currentUser ? "Open in External Tab" : "Login to Open External Tab"}
                                     >
-                                        <ExternalLink size={13} className="text-gray-400" />
-                                        <span>EXTERNAL</span>
+                                        <ExternalLink size={16} className="text-neutral-400 group-hover:text-white shrink-0 transition-transform duration-200 group-hover:scale-110" />
+                                        <span className="max-w-0 overflow-hidden whitespace-nowrap opacity-0 group-hover:max-w-xs group-hover:opacity-100 group-hover:ml-1.5 transition-all duration-300 ease-out delay-0 group-hover:delay-150 text-[11px] font-bold uppercase pointer-events-none">
+                                            External
+                                        </span>
                                     </a>
                                 </div>
 
@@ -1691,9 +1856,9 @@ export default function Home() {
                                     </button>
 
                                     <button
-                                        onClick={() => handleCopyShareLink(selectedFile.id)}
+                                        onClick={() => handleCopyShareLink(selectedFile.id, selectedFile.pdf_url)}
                                         className="p-2 rounded-xl bg-white/5 border border-white/10 text-cyan-400 hover:text-white transition-all"
-                                        title="Share Link"
+                                        title="Copy Drive Link"
                                     >
                                         {shareCopied ? <Check size={16} className="text-emerald-400" /> : <Share2 size={16} />}
                                     </button>
@@ -1757,6 +1922,17 @@ export default function Home() {
                                                         >
                                                             <Sparkles size={14} className="text-emerald-400" />
                                                             <span>Take Practice Quiz</span>
+                                                        </button>
+
+                                                        <button
+                                                            onClick={() => {
+                                                                setShowFlashcardsModal(true);
+                                                                setIsHeaderMenuOpen(false);
+                                                            }}
+                                                            className="flex items-center gap-2 px-3 py-2 text-xs font-mono uppercase text-cyan-300 hover:text-cyan-200 hover:bg-cyan-500/10 rounded-lg transition-colors text-left w-full font-bold"
+                                                        >
+                                                            <Layers size={14} className="text-cyan-400" />
+                                                            <span>AI Flashcards</span>
                                                         </button>
 
                                                         <button
@@ -1839,25 +2015,108 @@ export default function Home() {
                             </div>
 
                             <div className="relative flex-1 w-full bg-[#0a0a0c] overflow-hidden flex flex-col">
-                                {iframeLoading && (
-                                    <div className="absolute inset-0 z-20 flex flex-col items-center justify-center bg-[#09090b]/90 backdrop-blur-md gap-4">
-                                        <div className="relative">
-                                            <div className="w-12 h-12 rounded-full border-2 border-cyan-500/20 border-t-cyan-400 animate-spin"></div>
-                                            <div className="absolute inset-0 flex items-center justify-center">
-                                                <FileText size={18} className="text-cyan-400/80 animate-pulse" />
+                                <AnimatePresence>
+                                    {iframeLoading && (
+                                        <motion.div 
+                                            initial={{ opacity: 1 }}
+                                            animate={{ opacity: 1 }}
+                                            exit={{ opacity: 0 }}
+                                            transition={{ duration: 0.35, ease: "easeOut" }}
+                                            className="absolute inset-0 z-20 flex flex-col items-center justify-center bg-[#09090b]/95 backdrop-blur-md gap-5 select-none pointer-events-none"
+                                        >
+                                            {/* Multi-layered orbital glowing spinner with staggered animation delays */}
+                                            <div className="relative w-16 h-16 flex items-center justify-center">
+                                                {/* Concentric pulsing soft glow aura (with smooth delay) */}
+                                                <motion.div
+                                                    animate={{
+                                                        scale: [0.85, 1.25, 0.85],
+                                                        opacity: [0.25, 0.65, 0.25]
+                                                    }}
+                                                    transition={{
+                                                        duration: 2.2,
+                                                        repeat: Infinity,
+                                                        ease: "easeInOut",
+                                                        delay: 0.3
+                                                    }}
+                                                    className="absolute inset-0 rounded-full bg-cyan-500/20 blur-xl pointer-events-none"
+                                                />
+
+                                                {/* Outer Glowing Cyan Ring (Continuous 360° spin) */}
+                                                <motion.div
+                                                    animate={{ rotate: [0, 360] }}
+                                                    transition={{
+                                                        duration: 1.2,
+                                                        repeat: Infinity,
+                                                        ease: "linear"
+                                                    }}
+                                                    className="absolute inset-0 rounded-full border-2 border-cyan-500/20 border-t-cyan-400 border-r-cyan-400/60 shadow-[0_0_25px_rgba(6,182,212,0.6)]"
+                                                />
+
+                                                {/* Inner Fuchsia/Teal Counter-Rotating Ring (With smooth delay) */}
+                                                <motion.div
+                                                    animate={{ rotate: [360, 0] }}
+                                                    transition={{
+                                                        duration: 1.8,
+                                                        repeat: Infinity,
+                                                        ease: "linear",
+                                                        delay: 0.15
+                                                    }}
+                                                    className="absolute inset-1.5 rounded-full border border-dashed border-cyan-400/30 border-t-cyan-300 shadow-[0_0_15px_rgba(6,182,212,0.3)]"
+                                                />
+
+                                                {/* Floating Center Document Icon (Smooth hover-float with delay) */}
+                                                <motion.div
+                                                    animate={{ y: [-2, 2, -2] }}
+                                                    transition={{
+                                                        duration: 2,
+                                                        repeat: Infinity,
+                                                        ease: "easeInOut",
+                                                        delay: 0.1
+                                                    }}
+                                                    className="relative z-10 flex items-center justify-center"
+                                                >
+                                                    <FileText size={20} className="text-cyan-300 drop-shadow-[0_0_8px_rgba(6,182,212,0.8)]" />
+                                                </motion.div>
                                             </div>
-                                        </div>
-                                        <div className="flex flex-col items-center gap-1.5 px-4 text-center">
-                                            <p className="text-xs font-mono font-bold tracking-widest uppercase text-cyan-200">INITIALIZING PREVIEW</p>
-                                            <p className="text-[11px] text-gray-400 font-mono max-w-sm truncate">{selectedFile.title}</p>
-                                        </div>
-                                    </div>
-                                )}
+
+                                            {/* Staggered text & progress shimmer bar */}
+                                            <div className="flex flex-col items-center gap-2 px-4 text-center">
+                                                <motion.p 
+                                                    initial={{ opacity: 0, y: 6 }}
+                                                    animate={{ opacity: 1, y: 0 }}
+                                                    transition={{ duration: 0.3, delay: 0.18 }}
+                                                    className="text-xs font-mono font-bold tracking-widest uppercase text-cyan-200 drop-shadow-[0_0_10px_rgba(6,182,212,0.5)]"
+                                                >
+                                                    INITIALIZING PREVIEW
+                                                </motion.p>
+                                                
+                                                <motion.p 
+                                                    initial={{ opacity: 0, y: 6 }}
+                                                    animate={{ opacity: 1, y: 0 }}
+                                                    transition={{ duration: 0.3, delay: 0.32 }}
+                                                    className="text-[11px] text-gray-400 font-mono max-w-sm truncate"
+                                                >
+                                                    {selectedFile.title}
+                                                </motion.p>
+
+                                                {/* Sleek Neon Shimmer Progress Track (With delay) */}
+                                                <motion.div 
+                                                    initial={{ opacity: 0, scaleX: 0.8 }}
+                                                    animate={{ opacity: 1, scaleX: 1 }}
+                                                    transition={{ duration: 0.35, delay: 0.45 }}
+                                                    className="w-32 h-1 bg-white/10 rounded-full overflow-hidden relative mt-1"
+                                                >
+                                                    <div className="absolute inset-y-0 w-1/2 bg-gradient-to-r from-transparent via-cyan-400 to-transparent animate-shimmer" />
+                                                </motion.div>
+                                            </div>
+                                        </motion.div>
+                                    )}
+                                </AnimatePresence>
 
                                 <iframe
                                     key={selectedFile.id}
                                     src={getCleanPreviewUrl(selectedFile.pdf_url)}
-                                    className={`flex-1 w-full border-0 transition-opacity duration-300 ${iframeLoading ? 'opacity-0' : 'opacity-100'}`}
+                                    className="flex-1 w-full border-0"
                                     title="Preview"
                                     loading="eager"
                                     onLoad={() => setIframeLoading(false)}
@@ -1873,10 +2132,40 @@ export default function Home() {
                         <AnimatePresence mode='popLayout'>
                             {isAiOpen && (
                                 <motion.div initial={{ width: 0, opacity: 0, x: 50 }} animate={{ width: 350, opacity: 1, x: 0 }} exit={{ width: 0, opacity: 0, x: 50 }} transition={{ duration: 0.4, ease: "easeOut" }} className="fixed md:relative inset-y-0 right-0 z-30 w-full md:w-[350px] bg-black/40 backdrop-blur-3xl border border-white/10 flex flex-col md:rounded-2xl overflow-hidden shadow-[-10px_0_40px_rgba(0,0,0,0.5)]">
-                                    <div className="p-5 border-b border-white/10 bg-white/5 flex justify-between items-center relative backdrop-blur-xl">
+                                    <div className="p-4 border-b border-white/10 bg-white/5 flex flex-col gap-2 relative backdrop-blur-xl">
                                         <div className="absolute top-0 left-0 w-full h-[1px] bg-gradient-to-r from-transparent via-fuchsia-400/30 to-transparent"></div>
-                                        <div className="flex items-center gap-2"><Sparkles size={16} className="text-fuchsia-400 drop-shadow-[0_0_8px_rgba(232,121,249,0.5)]" /><span className="text-[15px] font-bold text-white tracking-wide">Tutor AI</span></div>
-                                        <button onClick={() => setIsAiOpen(false)} className="text-gray-400 hover:text-white transition bg-white/5 hover:bg-white/10 p-1.5 rounded-lg border border-transparent hover:border-white/10"><Minimize2 size={16} /></button>
+                                        <div className="flex justify-between items-center w-full">
+                                            <div className="flex items-center gap-2">
+                                                <Sparkles size={16} className="text-fuchsia-400 drop-shadow-[0_0_8px_rgba(232,121,249,0.5)]" />
+                                                <span className="text-[14px] font-bold text-white tracking-wide">Tutor AI</span>
+                                            </div>
+                                            <button onClick={() => setIsAiOpen(false)} className="text-gray-400 hover:text-white transition bg-white/5 hover:bg-white/10 p-1.5 rounded-lg border border-transparent hover:border-white/10">
+                                                <Minimize2 size={16} />
+                                            </button>
+                                        </div>
+
+                                        {/* 🧠 Multi-Provider AI Model Selector */}
+                                        <div className="flex items-center gap-1.5 bg-black/60 border border-white/10 rounded-xl px-2.5 py-1">
+                                            <span className="text-[10px] uppercase font-mono text-neutral-400 shrink-0">Model:</span>
+                                            <select
+                                                value={selectedAiModel}
+                                                onChange={(e) => setSelectedAiModel(e.target.value as any)}
+                                                className="flex-1 bg-transparent text-[11px] font-mono text-cyan-300 outline-none cursor-pointer"
+                                            >
+                                                <option value="auto" className="bg-neutral-900 text-white">⚡ Auto (Gemini + Standby)</option>
+                                                <option value="gemini" className="bg-neutral-900 text-white">💎 Gemini 2.5 Flash</option>
+                                                <option value="claude" className="bg-neutral-900 text-white">🧠 Claude 4.5 (OpenRouter)</option>
+                                                <option value="llama" className="bg-neutral-900 text-white">⚡ Nemotron 3.5 (OpenRouter Free)</option>
+                                            </select>
+                                        </div>
+
+                                        {/* 📄 Connected PDF Reading Indicator */}
+                                        {selectedFile && (
+                                            <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-emerald-300 text-[10px] font-mono">
+                                                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse shrink-0"></span>
+                                                <span className="truncate max-w-[210px]" title={selectedFile.title}>Reading PDF: {selectedFile.title}</span>
+                                            </div>
+                                        )}
                                     </div>
 
                                     <div className="flex-1 overflow-y-auto p-4 custom-scrollbar bg-transparent flex flex-col" ref={chatScrollRef}>
@@ -1886,24 +2175,24 @@ export default function Home() {
                                                     <Sparkles size={28} className="text-cyan-400/80" />
                                                 </div>
                                                 <h3 className="text-md font-black text-white mb-2 tracking-widest uppercase">System Ready</h3>
-                                                <p className="text-xs text-gray-400 mb-6 font-mono">DATASET LOADED: <br /><b className="text-cyan-200/80">[{selectedFile.title}]</b></p>
+                                                <p className="text-xs text-gray-400 mb-6 font-mono">DOCUMENT CONNECTED: <br /><b className="text-cyan-200/80">[{selectedFile.title}]</b></p>
 
                                                 {suggestedQuestions.length === 0 ? (
                                                     <div className="mt-2 w-full">
                                                         <button
                                                             onClick={() => generateSuggestions(selectedFile.title)}
                                                             disabled={isAiLoading}
-                                                            className="w-full flex items-center justify-center gap-2 bg-white/10 hover:bg-white/15 border border-white/10 text-white py-3 rounded-xl text-xs font-bold transition-all shadow-sm uppercase tracking-wider"
+                                                            className="w-full flex items-center justify-center gap-2 bg-white/10 hover:bg-white/15 border border-white/10 text-white py-3 rounded-xl text-xs font-bold transition-all shadow-sm uppercase tracking-wider btn-smooth"
                                                         >
                                                             {isAiLoading ? <Loader2 size={14} className="animate-spin text-fuchsia-400" /> : <Sparkles size={14} className="text-cyan-400/80" />}
                                                             Init Analysis
                                                         </button>
-                                                        <p className="text-[9px] text-gray-500 mt-3 font-mono uppercase">Query generation uses API Quota</p>
+                                                        <p className="text-[9px] text-gray-500 mt-3 font-mono uppercase">Reads full PDF content</p>
                                                     </div>
                                                 ) : (
                                                     <div className="flex flex-col gap-3 w-full">
                                                         {suggestedQuestions.map((q, i) => (
-                                                            <button key={i} onClick={() => handleChat(q)} className="text-left text-xs bg-white/5 hover:bg-white/10 text-gray-200 p-3.5 rounded-xl border border-white/5 transition-all flex items-start gap-3 group">
+                                                            <button key={i} onClick={() => handleChat(q)} className="text-left text-xs bg-white/5 hover:bg-white/10 text-gray-200 p-3.5 rounded-xl border border-white/5 transition-all flex items-start gap-3 group btn-smooth">
                                                                 <Lightbulb size={14} className="text-fuchsia-400/60 group-hover:text-fuchsia-300 transition mt-0.5 shrink-0" />
                                                                 <span className="leading-relaxed">{q}</span>
                                                             </button>
@@ -1915,6 +2204,19 @@ export default function Home() {
 
                                         {chatHistory.map((msg, i) => (
                                             <div key={i} className={`mb-5 p-4 rounded-2xl text-sm leading-relaxed max-w-[90%] relative ${msg.role === 'user' ? 'bg-gradient-to-br from-white/15 to-white/5 backdrop-blur-md border border-white/20 text-white ml-auto rounded-br-none shadow-[0_4px_15px_rgba(0,0,0,0.2)]' : 'bg-black/60 backdrop-blur-md border border-white/10 text-gray-200 mr-auto rounded-bl-none shadow-[0_4px_15px_rgba(0,0,0,0.2)]'}`}>
+                                                <div className="text-[10px] font-mono text-cyan-400/90 mb-1.5 flex items-center gap-1.5 flex-wrap">
+                                                    {msg.modelUsed && (
+                                                        <div className="flex items-center gap-1">
+                                                            <Sparkles size={11} className="text-cyan-400" />
+                                                            <span>{msg.modelUsed}</span>
+                                                        </div>
+                                                    )}
+                                                    {msg.pdfAnalyzed && (
+                                                        <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 flex items-center gap-1 font-mono">
+                                                            <FileText size={9} /> PDF Analyzed
+                                                        </span>
+                                                    )}
+                                                </div>
                                                 <div className="prose prose-invert max-w-none text-[13px] break-words">
                                                     <ReactMarkdown remarkPlugins={[remarkMath]} rehypePlugins={[rehypeKatex]} components={{ p: ({ node, ...props }) => <p className="mb-2 last:mb-0" {...props} />, a: ({ node, ...props }) => <a className="text-cyan-300 hover:text-cyan-200 hover:underline" {...props} />, code: ({ node, ...props }) => <code className="bg-black/50 text-cyan-200/80 px-1.5 py-0.5 rounded font-mono text-[11px] border border-white/10" {...props} /> }}>{msg.text}</ReactMarkdown>
                                                 </div>
@@ -1937,7 +2239,7 @@ export default function Home() {
                     <div className="flex-1 flex flex-col bg-transparent overflow-hidden min-h-0 relative">
                         <div className="absolute inset-0 bg-[url('https://transparenttextures.com/patterns/cubes.png')] opacity-[0.015] pointer-events-none"></div>
 
-                        <div className="flex-1 p-4 md:p-8 overflow-y-auto custom-scrollbar flex flex-col z-10">
+                        <div className="flex-1 p-4 md:p-8 overflow-y-auto custom-scrollbar smooth-scroll flex flex-col z-10" style={{ overscrollBehavior: 'contain' }}>
                             {/* 🌐 Public Catalog Guest Banner */}
                             {!currentUser && (
                                 <div className="mb-6 p-4 rounded-2xl bg-white/[0.03] backdrop-blur-xl border border-cyan-500/20 shadow-[0_8px_30px_rgba(0,0,0,0.2)] flex flex-col sm:flex-row items-center justify-between gap-3">
@@ -2065,17 +2367,23 @@ export default function Home() {
 
                             {dashboardFiles.length > 0 ? (
                                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6 mb-8">
-                                    {dashboardFiles.map((file) => {
+                                    {dashboardFiles.map((file, index) => {
                                         const isNew = isNewUpload(file.created_at);
                                         const isBookmarked = bookmarks.includes(file.id);
                                         return (
                                         <motion.div 
-                                            initial={{ opacity: 0, y: 30 }}
-                                            whileInView={{ opacity: 1, y: 0 }}
-                                            viewport={{ once: true, margin: "100px" }}
-                                            transition={{ duration: 0.4, ease: "easeOut" }}
+                                            initial={{ opacity: 0, y: 24, scale: 0.97 }}
+                                            whileInView={{ opacity: 1, y: 0, scale: 1 }}
+                                            viewport={{ once: true, amount: 0.1 }}
+                                            transition={{ 
+                                                type: "spring",
+                                                stiffness: 260,
+                                                damping: 22,
+                                                mass: 0.8,
+                                                delay: (index % 4) * 0.07
+                                            }}
                                             key={file.id} 
-                                            className={`group bg-white/[0.04] backdrop-blur-md border ${searchTerm ? 'border-cyan-500/40 shadow-[0_0_20px_rgba(6,182,212,0.15)] bg-white/[0.07]' : isNew ? 'border-cyan-500/40 shadow-[0_0_25px_rgba(6,182,212,0.15)] bg-gradient-to-b from-cyan-500/[0.07] to-white/[0.03]' : 'border-white/10 hover:border-white/30'} p-5 rounded-2xl transition-all duration-300 hover:-translate-y-1 hover:shadow-[0_10px_30px_rgba(0,0,0,0.3)] hover:bg-white/[0.08] flex flex-col gap-4 relative cursor-pointer overflow-hidden`} 
+                                            className={`group card-smooth bg-white/[0.04] backdrop-blur-md border ${searchTerm ? 'border-cyan-500/40 shadow-[0_0_20px_rgba(6,182,212,0.15)] bg-white/[0.07]' : isNew ? 'border-cyan-500/40 shadow-[0_0_25px_rgba(6,182,212,0.15)] bg-gradient-to-b from-cyan-500/[0.07] to-white/[0.03]' : 'border-white/10 hover:border-white/30'} p-5 rounded-2xl flex flex-col gap-4 relative cursor-pointer overflow-hidden`} 
                                             onClick={() => handleSelectFile(file)}
                                         >
                                             {/* Very subtle corners */}
@@ -2112,12 +2420,16 @@ export default function Home() {
                                                     <button
                                                         onClick={(e) => {
                                                             e.stopPropagation();
-                                                            handleCopyShareLink(file.id);
+                                                            handleCopyShareLink(file.id, file.pdf_url);
                                                         }}
                                                         className="p-2 rounded-lg bg-black/60 hover:bg-black/80 border border-white/10 text-gray-300 hover:text-cyan-300 backdrop-blur-md transition-all"
-                                                        title="Copy Direct Link"
+                                                        title="Copy Drive Link"
                                                     >
-                                                        <Share2 size={14} />
+                                                        {copiedFileId === file.id ? (
+                                                            <Check size={14} className="text-emerald-400" />
+                                                        ) : (
+                                                            <Share2 size={14} />
+                                                        )}
                                                     </button>
                                                 </div>
                                             </div>
@@ -2129,8 +2441,8 @@ export default function Home() {
                                                     </h3>
                                                     <p className="text-[11px] text-gray-400 mt-1 flex items-center gap-1 font-medium"><User size={12} /> {file.uploader || "Academic Roster"}</p>
                                                 </div>
-                                                {currentUser && (currentUser.role === 'admin' || file.uploader === currentUser.name) && (
-                                                    <button onClick={(e) => { e.stopPropagation(); handleDeleteFile(file); }} className="text-gray-500 hover:text-red-400 transition p-2 opacity-0 group-hover:opacity-100 hover:bg-red-500/20 backdrop-blur-md rounded-lg"><Trash2 size={16} /></button>
+                                                {currentUser && allowFileDeletion && (currentUser.role === 'admin' || file.uploader === currentUser.name) && (
+                                                    <button onClick={(e) => { e.stopPropagation(); handleDeleteFile(file); }} title="Delete file" className="text-gray-500 hover:text-red-400 transition p-2 opacity-0 group-hover:opacity-100 hover:bg-red-500/20 backdrop-blur-md rounded-lg btn-smooth"><Trash2 size={16} /></button>
                                                 )}
                                             </div>
                                             <div className="flex items-center gap-2 mt-auto z-10">
@@ -2370,6 +2682,32 @@ export default function Home() {
                                 </div>
 
                                 <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
+                                    {/* 🛡️ Super Admin File Deletion Toggle Button */}
+                                    <button
+                                        type="button"
+                                        onClick={handleToggleFileDeletion}
+                                        title={allowFileDeletion ? "File Deletion is ACTIVE. Click to lock deletion." : "File Deletion is LOCKED. Click to enable file deletion."}
+                                        className={`flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 sm:py-2 rounded-xl text-[11px] sm:text-xs font-mono font-bold transition-all border ${
+                                            allowFileDeletion
+                                                ? 'bg-red-500/20 border-red-500/50 text-red-300 shadow-[0_0_15px_rgba(239,68,68,0.3)] hover:bg-red-500/30'
+                                                : 'bg-emerald-500/10 border-emerald-500/25 text-emerald-400 hover:bg-emerald-500/20'
+                                        }`}
+                                    >
+                                        {allowFileDeletion ? (
+                                            <>
+                                                <Trash2 size={13} className="text-red-400 animate-pulse" />
+                                                <span className="hidden sm:inline">Delete:</span>
+                                                <span className="text-red-300 uppercase">ON</span>
+                                            </>
+                                        ) : (
+                                            <>
+                                                <ShieldCheck size={13} className="text-emerald-400" />
+                                                <span className="hidden sm:inline">Delete:</span>
+                                                <span className="text-emerald-400 uppercase">OFF</span>
+                                            </>
+                                        )}
+                                    </button>
+
                                     <button
                                         onClick={fetchTrafficAnalytics}
                                         disabled={isTrafficLoading}
@@ -2423,6 +2761,50 @@ export default function Home() {
                                 <>
                                     {/* Top Stats & Filters Section (Fixed, non-scrolling) */}
                                     <div className="p-3 sm:p-5 border-b border-white/10 bg-white/[0.01] shrink-0 space-y-3">
+                                        {/* 🛡️ Super Admin Protection Control Banner */}
+                                        <div className={`p-3 rounded-2xl border transition-all flex flex-col sm:flex-row sm:items-center justify-between gap-3 ${
+                                            allowFileDeletion
+                                                ? 'bg-red-500/10 border-red-500/30'
+                                                : 'bg-emerald-500/5 border-emerald-500/20'
+                                        }`}>
+                                            <div className="flex items-center gap-2.5">
+                                                <div className={`w-8 h-8 rounded-xl flex items-center justify-center shrink-0 border ${
+                                                    allowFileDeletion
+                                                        ? 'bg-red-500/20 border-red-500/40 text-red-300'
+                                                        : 'bg-emerald-500/15 border-emerald-500/30 text-emerald-300'
+                                                }`}>
+                                                    {allowFileDeletion ? <Trash2 size={15} /> : <ShieldCheck size={15} />}
+                                                </div>
+                                                <div>
+                                                    <div className="flex items-center gap-2">
+                                                        <span className="text-xs font-bold text-white tracking-wide">File Deletion System</span>
+                                                        <span className={`text-[9px] font-mono uppercase px-2 py-0.5 rounded-full border ${
+                                                            allowFileDeletion
+                                                                ? 'bg-red-500/20 text-red-300 border-red-500/40 font-bold'
+                                                                : 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30 font-medium'
+                                                        }`}>
+                                                            {allowFileDeletion ? '● Enabled (Hover Delete Active)' : '● Disabled (Accidental Deletion Protected)'}
+                                                        </span>
+                                                    </div>
+                                                    <p className="text-[10px] text-gray-400 font-mono mt-0.5">
+                                                        {allowFileDeletion
+                                                            ? 'Hovering over files in the sidebar and grid shows the delete button. Click to lock.'
+                                                            : 'Delete icons are hidden on hover across the entire website. Turn ON to enable deleting files.'}
+                                                    </p>
+                                                </div>
+                                            </div>
+                                            <button
+                                                type="button"
+                                                onClick={handleToggleFileDeletion}
+                                                className={`px-3.5 py-1.5 rounded-xl text-xs font-mono font-bold uppercase transition-all shrink-0 border flex items-center justify-center gap-1.5 ${
+                                                    allowFileDeletion
+                                                        ? 'bg-red-500 hover:bg-red-600 text-white border-red-400 shadow-[0_0_15px_rgba(239,68,68,0.4)]'
+                                                        : 'bg-white/10 hover:bg-white/15 text-gray-200 border-white/15'
+                                                }`}
+                                            >
+                                                {allowFileDeletion ? 'Lock Delete' : 'Turn ON Delete'}
+                                            </button>
+                                        </div>
                                 {/* 4 Summary Cards + Device Analytics */}
                                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-3">
                                     <div className="p-2.5 sm:p-3 rounded-xl sm:rounded-2xl bg-white/[0.03] border border-white/10 flex flex-col justify-between">
@@ -2515,7 +2897,7 @@ export default function Home() {
                             </div>
 
                             {/* Scrollable Students Container (Fluid, touch-optimized, with sticky header) */}
-                            <div className="flex-1 min-h-0 overflow-y-auto custom-scrollbar smooth-scroll p-2 sm:p-5">
+                            <div className="flex-1 min-h-0 overflow-y-auto custom-scrollbar smooth-scroll p-2 sm:p-5" style={{ overscrollBehavior: 'contain' }}>
                                 {(() => {
                                     const rawList = trafficData?.students || [];
                                     const query = trafficSearch.trim().toLowerCase();
@@ -2559,9 +2941,12 @@ export default function Home() {
                                         <>
                                             {/* 📱 MOBILE VIEW: Smooth touch-friendly cards */}
                                             <div className="sm:hidden space-y-2">
-                                                {sorted.map(student => (
-                                                    <div 
+                                                {sorted.map((student, idx) => (
+                                                    <motion.div 
                                                         key={student.id}
+                                                        initial={{ opacity: 0, y: 6 }}
+                                                        animate={{ opacity: 1, y: 0 }}
+                                                        transition={{ duration: 0.18, delay: Math.min(idx * 0.02, 0.35) }}
                                                         className="p-3 rounded-xl bg-white/[0.03] border border-white/10 hover:border-white/20 transition-all flex flex-col gap-2 shadow-sm"
                                                     >
                                                         <div className="flex items-center justify-between gap-2">
@@ -2604,8 +2989,8 @@ export default function Home() {
                                                             </div>
                                                             {student.devices && student.devices.length > 0 ? (
                                                                 <div className="flex flex-wrap gap-1">
-                                                                    {student.devices.map((d: any, idx: number) => (
-                                                                        <span key={idx} className="text-[10px] font-mono text-cyan-300/90 bg-cyan-500/10 px-2 py-0.5 rounded-md border border-cyan-500/20 flex items-center gap-1">
+                                                                    {student.devices.map((d: any, didx: number) => (
+                                                                        <span key={didx} className="text-[10px] font-mono text-cyan-300/90 bg-cyan-500/10 px-2 py-0.5 rounded-md border border-cyan-500/20 flex items-center gap-1">
                                                                             <span>{d.icon}</span>
                                                                             <span>{d.os} ({d.browser}){d.count > 1 ? ` ×${d.count}` : ''}</span>
                                                                         </span>
@@ -2618,14 +3003,14 @@ export default function Home() {
                                                                 </span>
                                                             ) : null}
                                                         </div>
-                                                    </div>
+                                                    </motion.div>
                                                 ))}
                                             </div>
 
-                                            {/* 💻 DESKTOP & TABLET VIEW: Sleek Table with Sticky Header & Device Column */}
+                                            {/* 💻 DESKTOP & TABLET VIEW: Sleek Table with Solid Sticky Header for 120fps Smooth Scrolling */}
                                             <div className="hidden sm:block border border-white/10 rounded-2xl overflow-hidden bg-white/[0.01]">
                                                 <table className="w-full text-left border-collapse text-xs">
-                                                    <thead className="sticky top-0 z-10 bg-[#0c0c12] border-b border-white/10 shadow-sm backdrop-blur-md">
+                                                    <thead className="sticky top-0 z-10 bg-[#0e0e16] border-b border-white/10 shadow-md">
                                                         <tr className="text-gray-400 font-mono uppercase text-[10px] tracking-wider">
                                                             <th className="p-3.5 pl-4">Student ID</th>
                                                             <th className="p-3.5">Name</th>
@@ -2637,8 +3022,14 @@ export default function Home() {
                                                         </tr>
                                                     </thead>
                                                     <tbody className="divide-y divide-white/5 font-mono">
-                                                        {sorted.map((student) => (
-                                                            <tr key={student.id} className="hover:bg-white/[0.03] transition-colors group">
+                                                        {sorted.map((student, idx) => (
+                                                            <motion.tr 
+                                                                key={student.id} 
+                                                                initial={{ opacity: 0, y: 4 }}
+                                                                animate={{ opacity: 1, y: 0 }}
+                                                                transition={{ duration: 0.15, delay: Math.min(idx * 0.015, 0.3) }}
+                                                                className="hover:bg-white/[0.04] transition-colors group"
+                                                            >
                                                                 <td className="p-3.5 pl-4">
                                                                     <span className="font-bold text-cyan-300 bg-cyan-500/10 px-2 py-1 rounded-md border border-cyan-500/20 tracking-wider">
                                                                         {student.id}
@@ -2659,8 +3050,8 @@ export default function Home() {
                                                                 <td className="p-3.5">
                                                                     {student.devices && student.devices.length > 0 ? (
                                                                         <div className="flex flex-wrap items-center gap-1.5">
-                                                                            {student.devices.map((d: any, idx: number) => (
-                                                                                <div key={idx} className="flex items-center gap-1.5 bg-white/[0.04] border border-white/10 px-2 py-1 rounded-lg">
+                                                                            {student.devices.map((d: any, didx: number) => (
+                                                                                <div key={didx} className="flex items-center gap-1.5 bg-white/[0.04] border border-white/10 px-2 py-1 rounded-lg">
                                                                                     <span className="text-sm">{d.icon}</span>
                                                                                     <div className="flex flex-col">
                                                                                         <span className="text-white text-[11px] font-mono font-medium leading-tight flex items-center gap-1">
@@ -2706,7 +3097,7 @@ export default function Home() {
                                                                         <span className="text-gray-600 italic">Never</span>
                                                                     )}
                                                                 </td>
-                                                            </tr>
+                                                            </motion.tr>
                                                         ))}
                                                     </tbody>
                                                 </table>
@@ -2717,7 +3108,7 @@ export default function Home() {
                             </div>
                         </>
                     ) : (
-                        <div className="flex-1 min-h-0 overflow-y-auto custom-scrollbar p-4 sm:p-6 space-y-6">
+                        <div className="flex-1 min-h-0 overflow-y-auto custom-scrollbar smooth-scroll p-4 sm:p-6 space-y-6" style={{ overscrollBehavior: 'contain' }}>
                             {/* Grid with Single Add and Batch CSV Import */}
                             <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
                                 {/* Single Student Add */}
@@ -3045,8 +3436,37 @@ export default function Home() {
                         fileTitle={selectedFile.title}
                         courseCode={selectedFile.course_code || 'General'}
                     />
+
+                    <FlashcardsModal
+                        isOpen={showFlashcardsModal}
+                        onClose={() => setShowFlashcardsModal(false)}
+                        courseId={selectedFile.id}
+                        fileTitle={selectedFile.title}
+                        courseCode={selectedFile.course_code || 'General'}
+                    />
                 </>
             )}
+
+            {/* ⚡ Floating AI Notification Toast */}
+            <AnimatePresence>
+                {aiNotice && (
+                    <motion.div
+                        initial={{ opacity: 0, y: 30, scale: 0.9 }}
+                        animate={{ opacity: 1, y: 0, scale: 1 }}
+                        exit={{ opacity: 0, y: 20, scale: 0.9 }}
+                        className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 bg-neutral-900/95 border border-cyan-500/50 text-cyan-200 px-5 py-3 rounded-2xl shadow-[0_10px_35px_rgba(6,182,212,0.35)] backdrop-blur-xl flex items-center gap-3 text-xs sm:text-sm font-medium tracking-wide max-w-[90vw]"
+                    >
+                        <Sparkles size={18} className="text-cyan-400 shrink-0 animate-pulse" />
+                        <span>{aiNotice}</span>
+                        <button
+                            onClick={() => setAiNotice(null)}
+                            className="p-1 rounded-lg hover:bg-white/10 text-neutral-400 hover:text-white transition ml-2"
+                        >
+                            <X size={14} />
+                        </button>
+                    </motion.div>
+                )}
+            </AnimatePresence>
 
         </motion.div>
     );

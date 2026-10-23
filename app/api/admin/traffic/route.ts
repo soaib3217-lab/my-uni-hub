@@ -88,7 +88,18 @@ export async function GET(request: Request) {
             return NextResponse.json({ success: false, error: 'Failed to retrieve student data.' }, { status: 500 });
         }
 
-        // 2. Fetch traffic_logs to analyze all sessions across devices
+        // 2. 🧹 Global 30-Day Auto-Purge: Clean up expired session logs older than 30 days
+        try {
+            const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+            await supabaseServer
+                .from('traffic_logs')
+                .delete()
+                .lt('visited_at', thirtyDaysAgo);
+        } catch (pruneErr) {
+            console.warn('Admin global 30-day log purge notice:', pruneErr);
+        }
+
+        // 3. Fetch active traffic_logs (within the 30-day retention window)
         let allLogs: any[] = [];
         try {
             const { data: logs } = await supabaseServer

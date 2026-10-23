@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { pregenerateCourseAi } from "@/lib/aiService";
 import { sanitizeString } from "@/lib/security";
 
-export const maxDuration = 60; // Allow background generation time
+export const maxDuration = 60; // Allow sufficient execution window in serverless
 
 export async function POST(req: Request) {
     try {
@@ -21,18 +21,21 @@ export async function POST(req: Request) {
             return NextResponse.json({ success: false, error: "courseId and title required" }, { status: 400 });
         }
 
-        // Trigger pre-generation asynchronously with automatic retry
-        // Run in background without blocking caller
-        pregenerateCourseAi(courseId, title, courseCode).catch(err => {
-            console.error(`[AI Pregenerate API] Background job error for ${courseId}:`, err);
-        });
+        // Await the pre-generation so serverless contexts do not terminate prematurely!
+        const generated = await pregenerateCourseAi(courseId, title, courseCode);
 
         return NextResponse.json({
             success: true,
-            message: "AI cheat sheet & quiz pre-generation started in background"
+            message: "AI cheat sheet, quiz & flashcards ready",
+            hasCheatsheet: Boolean(generated.cheatsheet),
+            hasQuiz: Boolean(generated.quiz?.length),
+            hasFlashcards: Boolean(generated.flashcards?.length)
         });
     } catch (err: any) {
-        console.error("[AI Pregenerate API] Server error:", err);
-        return NextResponse.json({ success: false, error: "Internal server error" }, { status: 500 });
+        console.error("[AI Pregenerate API] Execution error:", err);
+        return NextResponse.json({ 
+            success: false, 
+            error: err.message || "Failed to generate AI assets" 
+        }, { status: 500 });
     }
 }
