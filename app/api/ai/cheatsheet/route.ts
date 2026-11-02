@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getAuthenticatedUser, getClientIp, checkRateLimit, sanitizeString } from "@/lib/security";
 import { getCachedAiContent, saveCachedAiContent, generateCheatSheetContent } from "@/lib/aiService";
+import { supabaseServer } from "@/lib/supabaseServer";
 
 export const maxDuration = 60;
 export const dynamic = 'force-dynamic';
@@ -50,8 +51,23 @@ export async function POST(req: Request) {
             }
         }
 
-        // 🧠 3. If not in database yet (or force refresh requested), generate directly reading the PDF via Gemini 2.5 Flash
-        const markdown = await generateCheatSheetContent(title, courseCode, pdfUrl);
+        // Resolve PDF URL from database if not explicitly passed
+        let resolvedPdfUrl = pdfUrl;
+        if (!resolvedPdfUrl && courseId) {
+            try {
+                const { data: courseRow } = await supabaseServer
+                    .from("courses")
+                    .select("pdf_url")
+                    .eq("id", courseId)
+                    .single();
+                if (courseRow?.pdf_url) resolvedPdfUrl = courseRow.pdf_url;
+            } catch (err) {
+                console.warn("[cheatsheet] Failed to fetch pdf_url from db for course", courseId, err);
+            }
+        }
+
+        // 🧠 3. If not in database yet (or force refresh requested), generate directly reading the PDF via Gemini 3.5 Flash
+        const markdown = await generateCheatSheetContent(title, courseCode, resolvedPdfUrl);
 
         // 💾 4. Save to Database & Cache so all future requests always load from the database
         if (courseId) {

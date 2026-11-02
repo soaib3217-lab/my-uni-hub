@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { pregenerateCourseAi } from "@/lib/aiService";
 import { sanitizeString } from "@/lib/security";
+import { supabaseServer } from "@/lib/supabaseServer";
 
 export const maxDuration = 60; // Allow sufficient execution window in serverless
 export const dynamic = 'force-dynamic';
@@ -23,8 +24,22 @@ export async function POST(req: Request) {
             return NextResponse.json({ success: false, error: "courseId and title required" }, { status: 400 });
         }
 
+        let resolvedPdfUrl = pdfUrl;
+        if (!resolvedPdfUrl && courseId) {
+            try {
+                const { data: cData } = await supabaseServer
+                    .from("courses")
+                    .select("pdf_url")
+                    .eq("id", courseId)
+                    .single();
+                if (cData?.pdf_url) resolvedPdfUrl = cData.pdf_url;
+            } catch (err) {
+                console.warn("[pregenerate] Failed to lookup pdf_url for course", courseId, err);
+            }
+        }
+
         // Await the pre-generation so serverless contexts do not terminate prematurely!
-        const generated = await pregenerateCourseAi(courseId, title, courseCode, pdfUrl);
+        const generated = await pregenerateCourseAi(courseId, title, courseCode, resolvedPdfUrl);
 
         return NextResponse.json({
             success: true,

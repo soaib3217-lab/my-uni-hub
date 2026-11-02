@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getAuthenticatedUser, getClientIp, checkRateLimit, sanitizeString } from "@/lib/security";
 import { getCachedAiContent, saveCachedAiContent, generateFlashcardsContent } from "@/lib/aiService";
+import { supabaseServer } from "@/lib/supabaseServer";
 
 export const maxDuration = 60;
 export const dynamic = 'force-dynamic';
@@ -51,8 +52,23 @@ export async function POST(req: Request) {
             }
         }
 
+        // Resolve PDF URL from database if not explicitly passed
+        let resolvedPdfUrl = pdfUrl;
+        if (!resolvedPdfUrl && courseId) {
+            try {
+                const { data: courseRow } = await supabaseServer
+                    .from("courses")
+                    .select("pdf_url")
+                    .eq("id", courseId)
+                    .single();
+                if (courseRow?.pdf_url) resolvedPdfUrl = courseRow.pdf_url;
+            } catch (err) {
+                console.warn("[flashcards] Failed to fetch pdf_url from db for course", courseId, err);
+            }
+        }
+
         // 🧠 3. Generate directly from PDF via Gemini or OpenRouter fallback
-        const flashcards = await generateFlashcardsContent(title, courseCode, pdfUrl, modelPreference);
+        const flashcards = await generateFlashcardsContent(title, courseCode, resolvedPdfUrl, modelPreference);
 
         // 💾 4. Save to Database & Cache
         if (courseId && flashcards.length > 0) {

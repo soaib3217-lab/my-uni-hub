@@ -1165,7 +1165,8 @@ export default function Home() {
                         body: JSON.stringify({
                             courseId: courseData.course.id,
                             title: uploadedTitle,
-                            courseCode: courseData.course.course_code || targetFolderCode
+                            courseCode: courseData.course.course_code || targetFolderCode,
+                            pdfUrl: finalUrl
                         })
                     })
                     .then(async (res) => {
