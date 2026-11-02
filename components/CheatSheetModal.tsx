@@ -71,12 +71,25 @@ export default function CheatSheetModal({
                 })
             });
 
-            const data = await res.json();
-            if (data.success && data.markdown) {
+            const contentType = res.headers.get("content-type") || "";
+            let data: any = null;
+            if (contentType.includes("application/json")) {
+                data = await res.json();
+            } else {
+                if (res.status === 504) {
+                    throw new Error("Generation timed out on serverless execution. Please click 'Regenerate' to retry.");
+                } else if (res.status === 502) {
+                    throw new Error("Server configuration error (502). Please check Netlify environment variables.");
+                } else {
+                    throw new Error(`Server returned HTTP ${res.status}. Please try again.`);
+                }
+            }
+
+            if (res.ok && data?.success && data?.markdown) {
                 setMarkdown(data.markdown);
                 setIsCached(true);
             } else {
-                throw new Error(data.error || "Failed to load cheat sheet.");
+                throw new Error(data?.error || "Failed to load cheat sheet.");
             }
         } catch (err: any) {
             console.error("Cheat sheet error:", err);

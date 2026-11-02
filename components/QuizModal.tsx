@@ -60,12 +60,25 @@ export default function QuizModal({
                 })
             });
 
-            const data = await res.json();
-            if (data.success && Array.isArray(data.questions) && data.questions.length > 0) {
+            const contentType = res.headers.get("content-type") || "";
+            let data: any = null;
+            if (contentType.includes("application/json")) {
+                data = await res.json();
+            } else {
+                if (res.status === 504) {
+                    throw new Error("Quiz generation timed out. Please click retry.");
+                } else if (res.status === 502) {
+                    throw new Error("Server configuration error (502). Please check Netlify environment variables.");
+                } else {
+                    throw new Error(`Server returned HTTP ${res.status}. Please try again.`);
+                }
+            }
+
+            if (res.ok && data?.success && Array.isArray(data.questions) && data.questions.length > 0) {
                 setQuestions(data.questions);
                 setIsCached(true);
             } else {
-                throw new Error(data.error || "Failed to load quiz questions.");
+                throw new Error(data?.error || "Failed to load quiz questions.");
             }
         } catch (err: any) {
             console.error("Quiz fetch error:", err);

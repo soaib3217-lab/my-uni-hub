@@ -1168,7 +1168,13 @@ export default function Home() {
                             courseCode: courseData.course.course_code || targetFolderCode
                         })
                     })
-                    .then(res => res.json())
+                    .then(async (res) => {
+                        const contentType = res.headers.get("content-type") || "";
+                        if (contentType.includes("application/json")) {
+                            return res.json();
+                        }
+                        return { success: false };
+                    })
                     .then(pregenData => {
                         if (pregenData.success) {
                             setAiNotice(`✅ AI Study Suite ready for "${uploadedTitle}"!`);

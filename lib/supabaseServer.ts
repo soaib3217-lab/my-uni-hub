@@ -1,22 +1,21 @@
-import { createClient } from '@supabase/supabase-js';
+import { createClient, SupabaseClient } from '@supabase/supabase-js';
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-
-// Use the private SUPABASE_SERVICE_ROLE_KEY if available (bypasses RLS on server).
-// Falls back to NEXT_PUBLIC_SUPABASE_ANON_KEY if not configured yet.
-const supabaseKey = 
+const rawUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+const rawKey = 
     process.env.SUPABASE_SERVICE_ROLE_KEY || 
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
-if (!process.env.SUPABASE_SERVICE_ROLE_KEY && process.env.NODE_ENV !== 'production') {
-    console.warn(
-        "⚠️ [Server Supabase] SUPABASE_SERVICE_ROLE_KEY is not set in environment variables. " +
-        "When Row Level Security (RLS) is enabled on the 'students' table, server auth operations " +
-        "require SUPABASE_SERVICE_ROLE_KEY to bypass RLS. Please add it to your .env.local file."
+if (!rawUrl || !rawKey) {
+    console.error(
+        "⚠️ [Server Supabase] Missing NEXT_PUBLIC_SUPABASE_URL or SUPABASE_KEY in environment variables! " +
+        "Ensure NEXT_PUBLIC_SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY (or NEXT_PUBLIC_SUPABASE_ANON_KEY) are configured in Netlify Site Settings."
     );
 }
 
-export const supabaseServer = createClient(supabaseUrl, supabaseKey, {
+const supabaseUrl = rawUrl && rawUrl.startsWith("http") ? rawUrl : "https://placeholder-project.supabase.co";
+const supabaseKey = rawKey && rawKey.length > 5 ? rawKey : "placeholder-anon-key-prevent-import-crash";
+
+export const supabaseServer: SupabaseClient = createClient(supabaseUrl, supabaseKey, {
     auth: {
         persistSession: false,
         autoRefreshToken: false,

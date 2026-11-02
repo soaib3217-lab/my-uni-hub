@@ -4,19 +4,27 @@ import { callOpenRouter, CLAUDE_DEFAULT_MODEL, OPENROUTER_FREE_MODEL } from "@/l
 import { fetchPdfBuffer } from "@/lib/pdfService";
 import fs from "fs";
 import path from "path";
+import os from "os";
 
 function getGenAI(): GoogleGenerativeAI | null {
     const key = process.env.GEMINI_API_KEY;
     return key ? new GoogleGenerativeAI(key) : null;
 }
 
-const GEMINI_MODELS = ["gemini-2.5-flash", "gemini-flash-latest", "gemini-2.5-flash-lite"];
+const GEMINI_MODELS = [
+    "gemini-2.5-flash",
+    "gemini-3.5-flash",
+    "gemini-flash-latest",
+    "gemini-3.8-flash",
+    "gemini-flash-lite-latest"
+];
 
 async function callGeminiWithFallback(
     systemInstruction: string,
     prompt: string,
     pdfData: { base64: string; mimeType: string } | null,
-    generationConfig?: any
+    generationConfig?: any,
+    timeoutMs = 12000
 ): Promise<string | null> {
     const genAI = getGenAI();
     if (!genAI) return null;
@@ -33,17 +41,32 @@ async function callGeminiWithFallback(
     const combinedPrompt = systemInstruction ? `${systemInstruction}\n\n${prompt}` : prompt;
     contentParts.push(combinedPrompt);
 
+    const mergedConfig = {
+        maxOutputTokens: 2500,
+        temperature: 0.3,
+        ...(generationConfig || {})
+    };
+
     for (const modelName of GEMINI_MODELS) {
         try {
             const model = genAI.getGenerativeModel({
                 model: modelName,
-                ...(generationConfig ? { generationConfig } : {})
+                generationConfig: mergedConfig
             });
-            const result = await model.generateContent(contentParts);
-            const response = await result.response;
-            const text = response.text();
-            if (text && text.trim().length > 0) {
-                return text.trim();
+
+            const timeoutPromise = new Promise<null>((_, reject) =>
+                setTimeout(() => reject(new Error(`Timeout after ${timeoutMs}ms`)), timeoutMs)
+            );
+
+            const generatePromise = (async () => {
+                const result = await model.generateContent(contentParts);
+                const response = await result.response;
+                return response.text()?.trim() || null;
+            })();
+
+            const text = await Promise.race([generatePromise, timeoutPromise]);
+            if (text && text.length > 0) {
+                return text;
             }
         } catch (err: any) {
             console.warn(`[aiService] Gemini model ${modelName} error (${err?.status || err?.message?.slice(0, 80)}), trying next fallback...`);
@@ -74,8 +97,8 @@ export interface CachedAiBundle {
     flashcards?: FlashcardItem[];
 }
 
-// 📁 Local Persistent Fallback Cache (ensures instant load even before DB migration is run)
-const CACHE_FILE = path.join(process.cwd(), "scratch", "ai_cache.json");
+// 📁 Local Persistent Fallback Cache (uses os.tmpdir() for serverless safety)
+const CACHE_FILE = path.join(os.tmpdir(), "my_uni_hub_ai_cache.json");
 
 function readLocalCache(): Record<string, CachedAiBundle> {
     try {
@@ -91,8 +114,6 @@ function readLocalCache(): Record<string, CachedAiBundle> {
 
 function writeLocalCache(courseId: string, data: CachedAiBundle) {
     try {
-        const dir = path.dirname(CACHE_FILE);
-        if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
         const cache = readLocalCache();
         cache[courseId] = {
             ...(cache[courseId] || {}),
@@ -100,7 +121,7 @@ function writeLocalCache(courseId: string, data: CachedAiBundle) {
         };
         fs.writeFileSync(CACHE_FILE, JSON.stringify(cache, null, 2), "utf-8");
     } catch (e) {
-        console.warn("Local AI cache write warning:", e);
+        console.warn("Local AI cache write warning (non-fatal):", e);
     }
 }
 

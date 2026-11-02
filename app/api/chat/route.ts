@@ -4,6 +4,9 @@ import { getAuthenticatedUser, getClientIp, checkRateLimit, sanitizeString } fro
 import { callOpenRouter, CLAUDE_DEFAULT_MODEL, OPENROUTER_FREE_MODEL } from "@/lib/openRouterService";
 import { fetchPdfBuffer } from "@/lib/pdfService";
 
+export const maxDuration = 60;
+export const dynamic = 'force-dynamic';
+
 function getGenAI(): GoogleGenerativeAI | null {
     const key = process.env.GEMINI_API_KEY;
     return key ? new GoogleGenerativeAI(key) : null;

@@ -2,6 +2,9 @@ import { NextResponse } from "next/server";
 import { getAuthenticatedUser, getClientIp, checkRateLimit, sanitizeString } from "@/lib/security";
 import { getCachedAiContent, saveCachedAiContent, generateCheatSheetContent } from "@/lib/aiService";
 
+export const maxDuration = 60;
+export const dynamic = 'force-dynamic';
+
 export async function POST(req: Request) {
     const clientIp = getClientIp(req);
 

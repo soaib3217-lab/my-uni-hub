@@ -3,6 +3,7 @@ import { pregenerateCourseAi } from "@/lib/aiService";
 import { sanitizeString } from "@/lib/security";
 
 export const maxDuration = 60; // Allow sufficient execution window in serverless
+export const dynamic = 'force-dynamic';
 
 export async function POST(req: Request) {
     try {

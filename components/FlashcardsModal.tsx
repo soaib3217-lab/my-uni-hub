@@ -68,11 +68,24 @@ export default function FlashcardsModal({
                 })
             });
 
-            const data = await res.json();
-            if (data.success && Array.isArray(data.flashcards) && data.flashcards.length > 0) {
+            const contentType = res.headers.get("content-type") || "";
+            let data: any = null;
+            if (contentType.includes("application/json")) {
+                data = await res.json();
+            } else {
+                if (res.status === 504) {
+                    throw new Error("Generation timed out on serverless execution. Please click 'Regenerate' to retry.");
+                } else if (res.status === 502) {
+                    throw new Error("Server configuration error (502). Please check Netlify environment variables.");
+                } else {
+                    throw new Error(`Server returned HTTP ${res.status}. Please try again.`);
+                }
+            }
+
+            if (res.ok && data?.success && Array.isArray(data.flashcards) && data.flashcards.length > 0) {
                 setCards(data.flashcards);
             } else {
-                throw new Error(data.error || "No flashcards generated for this course.");
+                throw new Error(data?.error || "No flashcards generated for this course.");
             }
         } catch (err: any) {
             console.error("Flashcards error:", err);

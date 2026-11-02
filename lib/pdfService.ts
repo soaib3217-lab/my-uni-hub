@@ -42,7 +42,7 @@ export async function fetchPdfBuffer(pdfUrl: string): Promise<{ base64: string; 
 
     try {
         const controller = new AbortController();
-        const timeout = setTimeout(() => controller.abort(), 30000); // 30s timeout
+        const timeout = setTimeout(() => controller.abort(), 8000); // 8s timeout for serverless resilience
 
         let res = await fetch(downloadUrl, {
             signal: controller.signal,
