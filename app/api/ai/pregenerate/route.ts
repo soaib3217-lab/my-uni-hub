@@ -16,13 +16,14 @@ export async function POST(req: Request) {
         const courseId = body.courseId != null ? String(body.courseId).trim() : '';
         const title = sanitizeString(body.title, 200);
         const courseCode = sanitizeString(body.courseCode, 50);
+        const pdfUrl = body.pdfUrl ? sanitizeString(body.pdfUrl, 500) : undefined;
 
         if (!courseId || !title) {
             return NextResponse.json({ success: false, error: "courseId and title required" }, { status: 400 });
         }
 
         // Await the pre-generation so serverless contexts do not terminate prematurely!
-        const generated = await pregenerateCourseAi(courseId, title, courseCode);
+        const generated = await pregenerateCourseAi(courseId, title, courseCode, pdfUrl);
 
         return NextResponse.json({
             success: true,

@@ -36,13 +36,15 @@ export default function CheatSheetModal({
     onClose,
     courseId,
     fileTitle,
-    courseCode
+    courseCode,
+    pdfUrl
 }: {
     isOpen: boolean;
     onClose: () => void;
     courseId?: string;
     fileTitle: string;
     courseCode: string;
+    pdfUrl?: string;
 }) {
     const [markdown, setMarkdown] = useState<string>('');
     const [isLoading, setIsLoading] = useState(false);
@@ -64,6 +66,7 @@ export default function CheatSheetModal({
                     courseId,
                     title: fileTitle,
                     courseCode: courseCode,
+                    pdfUrl,
                     forceRefresh
                 })
             });
@@ -130,6 +133,11 @@ export default function CheatSheetModal({
                                     {isCached && (
                                         <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-lg bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 font-mono text-[11px] font-medium whitespace-nowrap shrink-0">
                                             <Database size={11} className="shrink-0" /> Saved in DB
+                                        </span>
+                                    )}
+                                    {pdfUrl && (
+                                        <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-lg bg-cyan-500/15 border border-cyan-500/30 text-cyan-300 font-mono text-[11px] font-medium whitespace-nowrap shrink-0">
+                                            <Sparkles size={11} className="shrink-0 text-cyan-400" /> PDF Grounded
                                         </span>
                                     )}
                                 </div>

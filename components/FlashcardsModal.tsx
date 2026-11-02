@@ -8,6 +8,16 @@ import remarkMath from 'remark-math';
 import rehypeKatex from 'rehype-katex';
 import 'katex/dist/katex.min.css';
 
+function formatKeyFormula(formula?: string): string {
+    if (!formula) return '';
+    const trimmed = formula.trim();
+    if (!trimmed) return '';
+    // If formula already contains KaTeX math delimiters ($ or $$), return as is
+    if (trimmed.includes('$')) return trimmed;
+    // Otherwise wrap in display math $$...$$ so LaTeX commands like \lambda, \sum, \frac render properly
+    return `$$${trimmed}$$`;
+}
+
 export interface Flashcard {
     id: number;
     question: string;
@@ -21,13 +31,15 @@ export default function FlashcardsModal({
     onClose,
     courseId,
     fileTitle,
-    courseCode
+    courseCode,
+    pdfUrl
 }: {
     isOpen: boolean;
     onClose: () => void;
     courseId?: string;
     fileTitle: string;
     courseCode: string;
+    pdfUrl?: string;
 }) {
     const [cards, setCards] = useState<Flashcard[]>([]);
     const [currentIndex, setCurrentIndex] = useState(0);
@@ -51,6 +63,7 @@ export default function FlashcardsModal({
                     courseId,
                     title: fileTitle,
                     courseCode,
+                    pdfUrl,
                     forceRefresh
                 })
             });
@@ -138,6 +151,11 @@ export default function FlashcardsModal({
                                     <span className="text-[10px] font-semibold tracking-wider uppercase px-2 py-0.5 rounded-full bg-cyan-500/20 text-cyan-300 border border-cyan-500/30">
                                         Active Recall
                                     </span>
+                                    {pdfUrl && (
+                                        <span className="text-[10px] font-semibold tracking-wider uppercase px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                                            PDF Grounded
+                                        </span>
+                                    )}
                                 </h2>
                                 <p className="text-xs text-neutral-400 truncate max-w-sm sm:max-w-md">
                                     {fileTitle} {courseCode && `• ${courseCode}`}
@@ -279,12 +297,14 @@ export default function FlashcardsModal({
                                                 {currentCard.keyFormula && (
                                                     <div className="mt-3 p-2.5 rounded-xl bg-black/40 border border-emerald-500/20 text-xs text-emerald-200">
                                                         <span className="text-[10px] font-bold uppercase text-emerald-400 block mb-1">Key Formula:</span>
-                                                        <ReactMarkdown
-                                                            remarkPlugins={[remarkMath]}
-                                                            rehypePlugins={[rehypeKatex]}
-                                                        >
-                                                            {currentCard.keyFormula}
-                                                        </ReactMarkdown>
+                                                        <div className="text-xs sm:text-sm text-emerald-100 overflow-x-auto py-0.5">
+                                                            <ReactMarkdown
+                                                                remarkPlugins={[remarkMath]}
+                                                                rehypePlugins={[rehypeKatex]}
+                                                            >
+                                                                {formatKeyFormula(currentCard.keyFormula)}
+                                                            </ReactMarkdown>
+                                                        </div>
                                                     </div>
                                                 )}
                                             </div>

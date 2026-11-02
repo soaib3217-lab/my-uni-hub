@@ -28,6 +28,7 @@ export async function POST(req: Request) {
         const courseId = body.courseId != null ? String(body.courseId).trim() : '';
         const title = sanitizeString(body.title, 200);
         const courseCode = sanitizeString(body.courseCode, 50);
+        const pdfUrl = body.pdfUrl ? sanitizeString(body.pdfUrl, 500) : undefined;
         const forceRefresh = Boolean(body.forceRefresh);
 
         if (!title && !courseCode && !courseId) {
@@ -46,8 +47,8 @@ export async function POST(req: Request) {
             }
         }
 
-        // 🧠 3. If not in database yet, generate via Gemini 2.5 Flash
-        const questions = await generateQuizContent(title, courseCode);
+        // 🧠 3. If not in database yet (or force refresh requested), generate directly from PDF via Gemini 2.5 Flash
+        const questions = await generateQuizContent(title, courseCode, pdfUrl);
 
         // 💾 4. Save to Database & Cache so all future requests always load from the database
         if (courseId && questions.length > 0) {

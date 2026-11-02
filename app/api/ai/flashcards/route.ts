@@ -28,6 +28,7 @@ export async function POST(req: Request) {
         const courseId = body.courseId != null ? String(body.courseId).trim() : '';
         const title = sanitizeString(body.title, 200);
         const courseCode = sanitizeString(body.courseCode, 50);
+        const pdfUrl = body.pdfUrl ? sanitizeString(body.pdfUrl, 500) : undefined;
         const modelPreference = sanitizeString(body.model || 'auto', 30);
         const forceRefresh = Boolean(body.forceRefresh);
 
@@ -47,8 +48,8 @@ export async function POST(req: Request) {
             }
         }
 
-        // 🧠 3. Generate via Gemini or OpenRouter fallback
-        const flashcards = await generateFlashcardsContent(title, courseCode, modelPreference);
+        // 🧠 3. Generate directly from PDF via Gemini or OpenRouter fallback
+        const flashcards = await generateFlashcardsContent(title, courseCode, pdfUrl, modelPreference);
 
         // 💾 4. Save to Database & Cache
         if (courseId && flashcards.length > 0) {

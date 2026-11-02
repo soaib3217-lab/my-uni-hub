@@ -2,9 +2,12 @@ import { GoogleGenerativeAI } from "@google/generative-ai";
 import { NextResponse } from "next/server";
 import { getAuthenticatedUser, getClientIp, checkRateLimit, sanitizeString } from "@/lib/security";
 import { callOpenRouter, CLAUDE_DEFAULT_MODEL, OPENROUTER_FREE_MODEL } from "@/lib/openRouterService";
+import { fetchPdfBuffer } from "@/lib/pdfService";
 
-const apiKey = process.env.GEMINI_API_KEY;
-const genAI = new GoogleGenerativeAI(apiKey || "");
+function getGenAI(): GoogleGenerativeAI | null {
+    const key = process.env.GEMINI_API_KEY;
+    return key ? new GoogleGenerativeAI(key) : null;
+}
 
 const BASE_SYSTEM_INSTRUCTION = `You are an expert university academic tutor for My Uni Hub (University Notes & Academic Hub).
 Your mission is to help students thoroughly understand statistics, probability theory, linear algebra, calculus, data science, and university coursework.
@@ -12,84 +15,6 @@ Your mission is to help students thoroughly understand statistics, probability t
 - Format all mathematical notation in KaTeX LaTeX ($inline$ or $$display block$$).
 - Break complex statistical concepts into intuitive real-world explanations first, then present formal derivations.
 - Always uphold academic integrity.`;
-
-// ⚡ Fast In-Memory PDF Cache (keyed by Google Drive file ID or URL, 2 hours TTL)
-interface CachedPdf {
-    base64: string;
-    mimeType: string;
-    timestamp: number;
-}
-const pdfCache = new Map<string, CachedPdf>();
-const PDF_CACHE_TTL = 1000 * 60 * 60 * 2; // 2 hours
-
-function getDriveFileId(url: string): string | null {
-    if (!url) return null;
-    const match1 = url.match(/\/file\/d\/([a-zA-Z0-9_-]+)/);
-    if (match1 && match1[1]) return match1[1];
-    const match2 = url.match(/[?&]id=([a-zA-Z0-9_-]+)/);
-    if (match2 && match2[1]) return match2[1];
-    const match3 = url.match(/\/d\/([a-zA-Z0-9_-]+)/);
-    if (match3 && match3[1]) return match3[1];
-    return null;
-}
-
-async function fetchPdfBuffer(pdfUrl: string): Promise<{ base64: string; mimeType: string } | null> {
-    const fileId = getDriveFileId(pdfUrl);
-    const cacheKey = fileId || pdfUrl;
-
-    const cached = pdfCache.get(cacheKey);
-    if (cached && (Date.now() - cached.timestamp < PDF_CACHE_TTL)) {
-        return { base64: cached.base64, mimeType: cached.mimeType };
-    }
-
-    const downloadUrl = fileId 
-        ? `https://drive.google.com/uc?export=download&id=${fileId}&confirm=t`
-        : pdfUrl;
-
-    try {
-        const controller = new AbortController();
-        const timeout = setTimeout(() => controller.abort(), 20000); // 20s timeout
-
-        const res = await fetch(downloadUrl, {
-            signal: controller.signal,
-            headers: {
-                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
-            }
-        });
-        clearTimeout(timeout);
-
-        if (!res.ok) {
-            console.warn(`[Chat PDF Fetch] HTTP error ${res.status} fetching ${downloadUrl}`);
-            return null;
-        }
-
-        const arrayBuffer = await res.arrayBuffer();
-        if (!arrayBuffer || arrayBuffer.byteLength === 0) {
-            return null;
-        }
-
-        // Skip if unexpectedly large (> 25MB)
-        if (arrayBuffer.byteLength > 25 * 1024 * 1024) {
-            console.warn(`[Chat PDF Fetch] File too large for inline multimodal: ${arrayBuffer.byteLength} bytes`);
-            return null;
-        }
-
-        const base64 = Buffer.from(arrayBuffer).toString("base64");
-        const mimeType = "application/pdf";
-
-        pdfCache.set(cacheKey, {
-            base64,
-            mimeType,
-            timestamp: Date.now()
-        });
-
-        console.log(`[Chat PDF Fetch] Successfully fetched and cached PDF (${(arrayBuffer.byteLength / 1024).toFixed(1)} KB) for key: ${cacheKey}`);
-        return { base64, mimeType };
-    } catch (err: any) {
-        console.warn(`[Chat PDF Fetch] Failed to fetch PDF for ${pdfUrl}:`, err?.message || err);
-        return null;
-    }
-}
 
 export async function POST(req: Request) {
     const clientIp = getClientIp(req);
@@ -120,7 +45,7 @@ export async function POST(req: Request) {
             return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
         }
 
-        const { message, context, pdfUrl, courseCode, model: requestedModel } = body;
+        const { message, context, pdfUrl, courseCode, model: requestedModel, history } = body;
 
         // 🛡️ 3. Input Validation
         if (!message || typeof message !== 'string') {
@@ -136,14 +61,27 @@ export async function POST(req: Request) {
         const cleanCourseCode = courseCode ? sanitizeString(courseCode, 50) : null;
         const modelMode = (requestedModel || "auto").toLowerCase();
 
-        // 📄 4. Fetch the PDF binary if a valid PDF URL was provided
-        let pdfData: { base64: string; mimeType: string } | null = null;
+        // 📄 4. Fetch and validate the PDF binary if a PDF URL was provided
+        let pdfData: { base64: string; mimeType: string; byteLength: number } | null = null;
         if (pdfUrl && typeof pdfUrl === 'string') {
             pdfData = await fetchPdfBuffer(pdfUrl);
         }
 
+        // Build dialogue context from recent turns
+        let conversationContext = "";
+        if (Array.isArray(history) && history.length > 0) {
+            const recent = history.slice(-4).map((h: any) => {
+                const role = h.role === 'user' ? 'Student' : 'Tutor';
+                const text = typeof h.text === 'string' ? h.text.slice(0, 300) : '';
+                return `${role}: ${text}`;
+            }).filter(Boolean);
+            if (recent.length > 0) {
+                conversationContext = `\n\nRecent Conversation Context:\n${recent.join("\n")}\n`;
+            }
+        }
+
         // Build prompt tailored to whether the PDF is attached
-        let prompt = cleanMessage;
+        let prompt = `${conversationContext}Student Question: ${cleanMessage}`;
         let systemInstruction = BASE_SYSTEM_INSTRUCTION;
 
         if (pdfData) {
@@ -151,14 +89,17 @@ export async function POST(req: Request) {
 You have direct, multimodal visual and textual access to the attached course document: "${cleanContext || 'Course Notes'}" ${cleanCourseCode ? `[${cleanCourseCode}]` : ''}.
 - Thoroughly analyze the attached PDF to answer the student's questions with exact precision.
 - Cite specific chapters, sections, formulas, theorems, proofs, worked examples, and page numbers directly from the document.
-- If asked to summarize, explain, or quiz, extract the exact definitions, notation, and methodologies from this PDF.`;
+- If asked to summarize, explain, or quiz, extract the exact definitions, notation, and methodologies from this PDF.
+- If a question asks about something completely absent from this document, clearly state that it is not covered in this document.`;
 
-            prompt = `Document Title: "${cleanContext || 'Course PDF'}"
+            prompt = `Active Course Document: "${cleanContext || 'Course PDF'}" ${cleanCourseCode ? `[${cleanCourseCode}]` : ''}
+${conversationContext}
 Student Question: ${cleanMessage}
 
-Please review the attached course document and provide a comprehensive, academically sound answer formatted in KaTeX LaTeX ($...$ or $$...$$).`;
+Please review the attached course document and provide an accurate, academically sound answer formatted in KaTeX LaTeX ($...$ or $$...$$).`;
         } else if (cleanContext) {
             prompt = `Active Course / Document Context: "${cleanContext}" ${cleanCourseCode ? `(${cleanCourseCode})` : ''}
+${conversationContext}
 Student Question: ${cleanMessage}
 
 Please provide a clear, helpful academic answer formatted in KaTeX LaTeX ($...$).`;
@@ -220,39 +161,44 @@ Please provide a clear, helpful academic answer formatted in KaTeX LaTeX ($...$)
             }
         }
 
-        // 💎 C. PRIMARY: GOOGLE GEMINI 2.5 FLASH (AUTO OR GEMINI MODE)
-        if (apiKey && modelMode !== "llama") {
-            try {
-                const model = genAI.getGenerativeModel({ 
-                    model: "gemini-2.5-flash",
-                    systemInstruction: systemInstruction
+        // 💎 C. PRIMARY: GOOGLE GEMINI FLASH CASCADE (AUTO OR GEMINI MODE)
+        const genAI = getGenAI();
+        const GEMINI_MODELS = ["gemini-2.5-flash", "gemini-flash-latest", "gemini-2.5-flash-lite"];
+
+        if (genAI && modelMode !== "llama") {
+            const contentParts: any[] = [];
+            if (pdfData) {
+                contentParts.push({
+                    inlineData: {
+                        mimeType: pdfData.mimeType,
+                        data: pdfData.base64
+                    }
                 });
+            }
+            const combinedPrompt = systemInstruction ? `${systemInstruction}\n\n${prompt}` : prompt;
+            contentParts.push(combinedPrompt);
 
-                const contentParts: any[] = [];
-                if (pdfData) {
-                    contentParts.push({
-                        inlineData: {
-                            mimeType: pdfData.mimeType,
-                            data: pdfData.base64
-                        }
+            for (const modelName of GEMINI_MODELS) {
+                try {
+                    const model = genAI.getGenerativeModel({ 
+                        model: modelName
                     });
-                }
-                contentParts.push(prompt);
 
-                const result = await model.generateContent(contentParts);
-                const response = await result.response;
-                const text = response.text();
+                    const result = await model.generateContent(contentParts);
+                    const response = await result.response;
+                    const text = response.text();
 
-                if (text && text.trim().length > 0) {
-                    return NextResponse.json({ 
-                        text, 
-                        modelUsed: "Gemini 2.5 Flash",
-                        provider: "google",
-                        pdfAnalyzed: !!pdfData
-                    });
+                    if (text && text.trim().length > 0) {
+                        return NextResponse.json({ 
+                            text, 
+                            modelUsed: `${modelName === 'gemini-2.5-flash' ? 'Gemini 2.5 Flash' : modelName}`,
+                            provider: "google",
+                            pdfAnalyzed: !!pdfData
+                        });
+                    }
+                } catch (geminiErr: any) {
+                    console.warn(`[Chat API] Gemini model ${modelName} error (${geminiErr?.status || geminiErr?.message?.slice(0, 80)}), trying next fallback...`);
                 }
-            } catch (geminiErr: any) {
-                console.warn("[Chat API] Gemini failed, auto-failing over to OpenRouter:", geminiErr?.message || geminiErr);
             }
         }
 

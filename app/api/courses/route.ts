@@ -78,9 +78,9 @@ export async function POST(request: Request) {
             return NextResponse.json({ success: false, error: 'Failed to save course record.' }, { status: 500 });
         }
 
-        // 🤖 Asynchronous Background Pre-generation for Cheat Sheet & Quiz (non-blocking)
+        // 🤖 Asynchronous Background Pre-generation for Cheat Sheet, Quiz & Flashcards (reads PDF directly)
         if (data?.id) {
-            pregenerateCourseAi(data.id, data.title, data.course_code).catch(err => {
+            pregenerateCourseAi(data.id, data.title, data.course_code, data.pdf_url).catch(err => {
                 console.warn('[Courses API] Background pregeneration error:', err);
             });
         }

@@ -21,13 +21,15 @@ export default function QuizModal({
     onClose,
     courseId,
     fileTitle,
-    courseCode
+    courseCode,
+    pdfUrl
 }: {
     isOpen: boolean;
     onClose: () => void;
     courseId?: string;
     fileTitle: string;
     courseCode: string;
+    pdfUrl?: string;
 }) {
     const [questions, setQuestions] = useState<QuizQuestion[]>([]);
     const [isLoading, setIsLoading] = useState(false);
@@ -53,6 +55,7 @@ export default function QuizModal({
                     courseId,
                     title: fileTitle,
                     courseCode: courseCode,
+                    pdfUrl,
                     forceRefresh
                 })
             });
@@ -121,6 +124,11 @@ export default function QuizModal({
                                             <Database size={11} className="shrink-0" /> Saved in DB
                                         </span>
                                     )}
+                                    {pdfUrl && (
+                                        <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-lg bg-cyan-500/15 border border-cyan-500/30 text-cyan-300 font-mono text-[11px] font-medium whitespace-nowrap shrink-0">
+                                            <Sparkles size={11} className="shrink-0 text-cyan-400" /> PDF Grounded
+                                        </span>
+                                    )}
                                 </div>
                                 <h3 className="text-base sm:text-lg font-bold text-white tracking-tight flex items-center gap-2">
                                     <span>AI Practice Quiz</span>
@@ -131,12 +139,22 @@ export default function QuizModal({
                                 </h3>
                             </div>
                         </div>
-                        <button
-                            onClick={onClose}
-                            className="p-2 text-gray-400 hover:text-white hover:bg-white/10 rounded-xl transition-colors border border-white/5 self-end sm:self-center shrink-0"
-                        >
-                            <X size={18} />
-                        </button>
+                        <div className="flex items-center gap-2 self-end sm:self-center shrink-0">
+                            <button
+                                onClick={() => fetchQuiz(true)}
+                                disabled={isLoading}
+                                className="p-2 rounded-xl bg-white/5 border border-white/10 text-gray-400 hover:text-cyan-300 hover:bg-white/10 transition-colors text-xs font-mono"
+                                title="Regenerate Quiz"
+                            >
+                                <RotateCcw size={15} className={isLoading ? "animate-spin" : ""} />
+                            </button>
+                            <button
+                                onClick={onClose}
+                                className="p-2 text-gray-400 hover:text-white hover:bg-white/10 rounded-xl transition-colors border border-white/5"
+                            >
+                                <X size={18} />
+                            </button>
+                        </div>
                     </div>
 
                     {/* Body */}

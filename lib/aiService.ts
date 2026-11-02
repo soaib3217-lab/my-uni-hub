@@ -1,11 +1,56 @@
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import { supabaseServer } from "@/lib/supabaseServer";
 import { callOpenRouter, CLAUDE_DEFAULT_MODEL, OPENROUTER_FREE_MODEL } from "@/lib/openRouterService";
+import { fetchPdfBuffer } from "@/lib/pdfService";
 import fs from "fs";
 import path from "path";
 
-const apiKey = process.env.GEMINI_API_KEY;
-const genAI = new GoogleGenerativeAI(apiKey || "");
+function getGenAI(): GoogleGenerativeAI | null {
+    const key = process.env.GEMINI_API_KEY;
+    return key ? new GoogleGenerativeAI(key) : null;
+}
+
+const GEMINI_MODELS = ["gemini-2.5-flash", "gemini-flash-latest", "gemini-2.5-flash-lite"];
+
+async function callGeminiWithFallback(
+    systemInstruction: string,
+    prompt: string,
+    pdfData: { base64: string; mimeType: string } | null,
+    generationConfig?: any
+): Promise<string | null> {
+    const genAI = getGenAI();
+    if (!genAI) return null;
+
+    const contentParts: any[] = [];
+    if (pdfData) {
+        contentParts.push({
+            inlineData: {
+                mimeType: pdfData.mimeType,
+                data: pdfData.base64
+            }
+        });
+    }
+    const combinedPrompt = systemInstruction ? `${systemInstruction}\n\n${prompt}` : prompt;
+    contentParts.push(combinedPrompt);
+
+    for (const modelName of GEMINI_MODELS) {
+        try {
+            const model = genAI.getGenerativeModel({
+                model: modelName,
+                ...(generationConfig ? { generationConfig } : {})
+            });
+            const result = await model.generateContent(contentParts);
+            const response = await result.response;
+            const text = response.text();
+            if (text && text.trim().length > 0) {
+                return text.trim();
+            }
+        } catch (err: any) {
+            console.warn(`[aiService] Gemini model ${modelName} error (${err?.status || err?.message?.slice(0, 80)}), trying next fallback...`);
+        }
+    }
+    return null;
+}
 
 export interface QuizQuestion {
     id: number;
@@ -134,9 +179,20 @@ export async function saveCachedAiContent(
 
 /**
  * Generate 1-Page Exam Cheat Sheet using Gemini, with OpenRouter automatic fallback.
+ * Directly reads attached course PDF to extract authentic formulas, definitions, and theorems.
  */
-export async function generateCheatSheetContent(title: string, courseCode: string, modelPreference = "auto"): Promise<string> {
-    const systemInstruction = `You are an elite university professor and academic tutor specializing in Statistics, Mathematics, Data Science, and Computer Science.
+export async function generateCheatSheetContent(
+    title: string,
+    courseCode: string,
+    pdfUrl?: string,
+    modelPreference = "auto"
+): Promise<string> {
+    let pdfData: { base64: string; mimeType: string; byteLength: number } | null = null;
+    if (pdfUrl) {
+        pdfData = await fetchPdfBuffer(pdfUrl);
+    }
+
+    let systemInstruction = `You are an elite university professor and academic tutor specializing in Statistics, Mathematics, Data Science, and Computer Science.
 Your job is to generate an extraordinarily clear, high-yield, and visually pristine "1-Page Exam Cheat Sheet" for university students.
 Format your output strictly in clean GitHub-Flavored Markdown with KaTeX math:
 - Inline math with $...$ (e.g. $X$, $\\beta_1$, $R^2$)
@@ -152,11 +208,23 @@ Include these 5 structured sections:
 4. ⚠️ **Common Exam Traps & Pitfalls** (Mistakes professors love to test, boundary conditions, edge cases, misinterpretations)
 5. 💡 **Quick Worked Example** (A concise, step-by-step application with clean, readable numbers, properly formatted tables, and clear step headers)`;
 
-    const prompt = `Generate a high-yield university exam cheat sheet for:
+    let prompt = `Generate a high-yield university exam cheat sheet for:
 Course: ${courseCode || "University Statistics & Math"}
 Topic / Lecture: "${title}"
 
 Ensure all mathematical expressions use standard KaTeX ($...$ or $$...$$). Make it rigorous, professional, spacious, and directly useful for exam preparation.`;
+
+    if (pdfData) {
+        systemInstruction = `${systemInstruction}
+CRITICAL REQUIREMENT: You have direct visual and textual access to the attached course document: "${title}" (${courseCode || "Course"}).
+Your cheat sheet MUST be derived STRICTLY and FAITHFULLY from the contents of this attached PDF document.
+- Extract the exact definitions, theorems, formulas, notation, properties, and worked examples from THIS document.
+- Cite specific sections or formulas from this note.
+- Do not invent generic topics not covered in this document.`;
+
+        prompt = `Attached Course Document: "${title}" (${courseCode || "Course"})
+Please thoroughly read the attached PDF note and generate a comprehensive 1-page exam cheat sheet reflecting the exact notation, formulas, theorems, and examples taught in this document.`;
+    }
 
     // 1. If explicit Claude requested, go directly via OpenRouter
     if (modelPreference === "claude") {
@@ -167,21 +235,11 @@ Ensure all mathematical expressions use standard KaTeX ($...$ or $$...$$). Make 
         if (orResult.success && orResult.content) return orResult.content;
     }
 
-    // 2. Try Gemini 2.5 Flash as primary
-    if (modelPreference !== "claude" && apiKey) {
-        try {
-            const model = genAI.getGenerativeModel({
-                model: "gemini-2.5-flash",
-                systemInstruction
-            });
-            const result = await model.generateContent(prompt);
-            const response = await result.response;
-            const text = response.text();
-            if (text && text.trim().length > 50) {
-                return text;
-            }
-        } catch (geminiErr: any) {
-            console.warn("[aiService] Gemini CheatSheet error, activating OpenRouter fallback:", geminiErr?.message || geminiErr);
+    // 2. Try Gemini Flash cascade with direct PDF analysis
+    if (modelPreference !== "claude") {
+        const text = await callGeminiWithFallback(systemInstruction, prompt, pdfData);
+        if (text && text.trim().length > 50) {
+            return text;
         }
     }
 
@@ -219,9 +277,20 @@ function parseJsonClean<T>(raw: string): T {
 
 /**
  * Generate 5-Question AI Practice Quiz with OpenRouter Fallback.
+ * Directly reads attached course PDF to test actual concepts and problems taught in the document.
  */
-export async function generateQuizContent(title: string, courseCode: string, modelPreference = "auto"): Promise<QuizQuestion[]> {
-    const systemInstruction = `You are an expert university exam writer and professor in Statistics, Mathematics, and Computer Science.
+export async function generateQuizContent(
+    title: string,
+    courseCode: string,
+    pdfUrl?: string,
+    modelPreference = "auto"
+): Promise<QuizQuestion[]> {
+    let pdfData: { base64: string; mimeType: string; byteLength: number } | null = null;
+    if (pdfUrl) {
+        pdfData = await fetchPdfBuffer(pdfUrl);
+    }
+
+    let systemInstruction = `You are an expert university exam writer and professor in Statistics, Mathematics, and Computer Science.
 Generate a challenging and educational 5-question multiple choice practice quiz based on the requested subject.
 Each question must test conceptual understanding, formula application, or theoretical properties.
 Return a JSON array of 5 objects strictly adhering to this schema:
@@ -242,9 +311,18 @@ Return a JSON array of 5 objects strictly adhering to this schema:
 Format all math in KaTeX syntax ($...$). The correctIndex must be an integer from 0 to 3.
 IMPORTANT: All LaTeX backslashes inside JSON strings must be escaped with double backslashes (e.g. \\\\beta, \\\\sum, \\\\frac). Return ONLY valid JSON.`;
 
-    const prompt = `Create a 5-question multiple choice university practice quiz for:
+    let prompt = `Create a 5-question multiple choice university practice quiz for:
 Course: ${courseCode || "University Statistics"}
 Topic / Lecture: "${title}"`;
+
+    if (pdfData) {
+        systemInstruction = `${systemInstruction}
+CRITICAL REQUIREMENT: You have direct access to the attached course document: "${title}" (${courseCode || "Course"}).
+Every single question and explanation MUST test the student strictly on the theorems, definitions, derivations, formulas, or worked examples presented in this attached PDF document.`;
+
+        prompt = `Attached Document: "${title}" (${courseCode || "Course"})
+Please thoroughly read the attached PDF note and generate a 5-question multiple choice practice quiz testing knowledge directly covered in this document.`;
+    }
 
     let rawJson = "";
 
@@ -259,19 +337,11 @@ Topic / Lecture: "${title}"`;
         }
     }
 
-    // 2. Try Gemini with JSON response mime-type
-    if (!rawJson && apiKey && modelPreference !== "claude") {
-        try {
-            const model = genAI.getGenerativeModel({
-                model: "gemini-2.5-flash",
-                generationConfig: { responseMimeType: "application/json" },
-                systemInstruction
-            });
-            const result = await model.generateContent(prompt);
-            const response = await result.response;
-            rawJson = response.text().trim();
-        } catch (geminiErr: any) {
-            console.warn("[aiService] Gemini Quiz error, falling back to OpenRouter:", geminiErr?.message || geminiErr);
+    // 2. Try Gemini Flash cascade with JSON response mime-type & PDF analysis
+    if (!rawJson && modelPreference !== "claude") {
+        const text = await callGeminiWithFallback(systemInstruction, prompt, pdfData, { responseMimeType: "application/json" });
+        if (text) {
+            rawJson = text;
         }
     }
 
@@ -306,9 +376,20 @@ Topic / Lecture: "${title}"`;
 
 /**
  * Generate 6-8 Interactive AI Flashcards with OpenRouter Fallback.
+ * Directly reads attached course PDF to generate flashcards covering real definitions and formulas.
  */
-export async function generateFlashcardsContent(title: string, courseCode: string, modelPreference = "auto"): Promise<FlashcardItem[]> {
-    const systemInstruction = `You are a world-class academic study coach.
+export async function generateFlashcardsContent(
+    title: string,
+    courseCode: string,
+    pdfUrl?: string,
+    modelPreference = "auto"
+): Promise<FlashcardItem[]> {
+    let pdfData: { base64: string; mimeType: string; byteLength: number } | null = null;
+    if (pdfUrl) {
+        pdfData = await fetchPdfBuffer(pdfUrl);
+    }
+
+    let systemInstruction = `You are a world-class academic study coach.
 Create 6 to 8 high-yield interactive study flashcards for a university student.
 Focus on core definitions, formula recall, theorem conditions, and problem-solving heuristics.
 Return a valid JSON array of objects with this schema:
@@ -317,15 +398,25 @@ Return a valid JSON array of objects with this schema:
     "id": 1,
     "question": "Front of card (concise concept question or prompt with KaTeX math $...$)",
     "answer": "Back of card (clear, precise answer or explanation with KaTeX math $...$)",
-    "keyFormula": "Optional key formula or null",
+    "keyFormula": "Optional key formula wrapped in KaTeX ($...$ or $$...$$) or null",
     "category": "Definition | Formula | Theorem | Application"
   }
 ]
 Format all math strictly in KaTeX ($inline$ or $$display$$). Return ONLY the raw JSON array.`;
 
-    const prompt = `Generate interactive flashcards for:
+    let prompt = `Generate interactive flashcards for:
 Course: ${courseCode || "University Academic Course"}
 Topic / Lecture: "${title}"`;
+
+    if (pdfData) {
+        systemInstruction = `${systemInstruction}
+CRITICAL REQUIREMENT: You have direct access to the attached course document: "${title}" (${courseCode || "Course"}).
+The flashcards MUST be derived STRICTLY and FAITHFULLY from the attached PDF document.
+Extract the exact definitions, formula statements, theorems, and rules presented in this document.`;
+
+        prompt = `Attached Document: "${title}" (${courseCode || "Course"})
+Please thoroughly read the attached PDF note and generate 6 to 8 high-yield interactive study flashcards directly testing material from this document.`;
+    }
 
     let rawJson = "";
 
@@ -338,19 +429,11 @@ Topic / Lecture: "${title}"`;
         if (orRes.success && orRes.content) rawJson = orRes.content;
     }
 
-    // 2. Try Gemini
-    if (!rawJson && apiKey && modelPreference !== "claude") {
-        try {
-            const model = genAI.getGenerativeModel({
-                model: "gemini-2.5-flash",
-                generationConfig: { responseMimeType: "application/json" },
-                systemInstruction
-            });
-            const result = await model.generateContent(prompt);
-            const response = await result.response;
-            rawJson = response.text().trim();
-        } catch (geminiErr: any) {
-            console.warn("[aiService] Gemini Flashcards error, falling back to OpenRouter:", geminiErr?.message || geminiErr);
+    // 2. Try Gemini Flash cascade with JSON response mime-type & PDF analysis
+    if (!rawJson && modelPreference !== "claude") {
+        const text = await callGeminiWithFallback(systemInstruction, prompt, pdfData, { responseMimeType: "application/json" });
+        if (text) {
+            rawJson = text;
         }
     }
 
@@ -372,20 +455,34 @@ Topic / Lecture: "${title}"`;
         ? parsed 
         : (parsed.flashcards || parsed.cards || Object.values(parsed).find(v => Array.isArray(v)) || []);
 
-    return cardsArray.map((c: any, idx: number) => ({
-        id: c.id || idx + 1,
-        question: c.question || "Flashcard Question",
-        answer: c.answer || "Answer",
-        keyFormula: c.keyFormula || undefined,
-        category: c.category || "Study Concept"
-    }));
+    return cardsArray.map((c: any, idx: number) => {
+        let keyFormula = c.keyFormula || undefined;
+        if (keyFormula && typeof keyFormula === 'string') {
+            const trimmed = keyFormula.trim();
+            if (trimmed && !trimmed.includes('$')) {
+                keyFormula = `$$${trimmed}$$`;
+            }
+        }
+        return {
+            id: c.id || idx + 1,
+            question: c.question || "Flashcard Question",
+            answer: c.answer || "Answer",
+            keyFormula,
+            category: c.category || "Study Concept"
+        };
+    });
 }
 
 /**
  * Asynchronous Background Pre-generation with Automatic Fallback.
  * Runs to pre-generate Cheat Sheet, Quiz, and Flashcards and saves to DB.
  */
-export async function pregenerateCourseAi(courseId: string, title: string, courseCode: string): Promise<CachedAiBundle> {
+export async function pregenerateCourseAi(
+    courseId: string,
+    title: string,
+    courseCode: string,
+    pdfUrl?: string
+): Promise<CachedAiBundle> {
     if (!courseId || !title) return {};
 
     console.log(`[AI Engine] 🚀 Executing pre-generation for Course ID: ${courseId} ("${title}")...`);
@@ -404,9 +501,9 @@ export async function pregenerateCourseAi(courseId: string, title: string, cours
 
     // Run generations concurrently
     const [cheatResult, quizResult, flashResult] = await Promise.allSettled([
-        needCheatSheet ? generateCheatSheetContent(title, courseCode) : Promise.resolve(existing.cheatsheet!),
-        needQuiz ? generateQuizContent(title, courseCode) : Promise.resolve(existing.quiz!),
-        needFlashcards ? generateFlashcardsContent(title, courseCode) : Promise.resolve(existing.flashcards!)
+        needCheatSheet ? generateCheatSheetContent(title, courseCode, pdfUrl) : Promise.resolve(existing.cheatsheet!),
+        needQuiz ? generateQuizContent(title, courseCode, pdfUrl) : Promise.resolve(existing.quiz!),
+        needFlashcards ? generateFlashcardsContent(title, courseCode, pdfUrl) : Promise.resolve(existing.flashcards!)
     ]);
 
     if (cheatResult.status === "fulfilled" && cheatResult.value) {

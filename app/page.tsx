@@ -728,7 +728,8 @@ export default function Home() {
                     context: selectedFile?.title || null,
                     pdfUrl: selectedFile?.pdf_url || null,
                     courseCode: selectedFile?.course_code || null,
-                    model: selectedAiModel
+                    model: selectedAiModel,
+                    history: chatHistory.slice(-4)
                 })
             });
 
@@ -3427,6 +3428,7 @@ export default function Home() {
                         courseId={selectedFile.id}
                         fileTitle={selectedFile.title}
                         courseCode={selectedFile.course_code || 'General'}
+                        pdfUrl={selectedFile.pdf_url}
                     />
 
                     <CheatSheetModal
@@ -3435,6 +3437,7 @@ export default function Home() {
                         courseId={selectedFile.id}
                         fileTitle={selectedFile.title}
                         courseCode={selectedFile.course_code || 'General'}
+                        pdfUrl={selectedFile.pdf_url}
                     />
 
                     <FlashcardsModal
@@ -3443,6 +3446,7 @@ export default function Home() {
                         courseId={selectedFile.id}
                         fileTitle={selectedFile.title}
                         courseCode={selectedFile.course_code || 'General'}
+                        pdfUrl={selectedFile.pdf_url}
                     />
                 </>
             )}
