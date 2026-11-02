@@ -122,50 +122,51 @@ export default function QuizModal({
                     <div className="h-1 bg-gradient-to-r from-emerald-400 via-cyan-400 to-fuchsia-500 w-full shrink-0" />
 
                     {/* Header */}
-                    <div className="flex flex-col sm:flex-row sm:items-center justify-between p-4 sm:p-5 border-b border-white/10 bg-white/[0.02] gap-3 shrink-0">
-                        <div className="flex items-center gap-3 min-w-0">
-                            <div className="w-11 h-11 rounded-2xl bg-cyan-500/10 border border-cyan-500/30 flex items-center justify-center text-cyan-400 shadow-[0_0_20px_rgba(6,182,212,0.2)] shrink-0">
-                                <Sparkles size={22} />
+                    <div className="flex items-start sm:items-center justify-between p-3.5 sm:p-5 border-b border-white/10 bg-white/[0.02] gap-3 shrink-0">
+                        <div className="flex items-start sm:items-center gap-2.5 sm:gap-3 min-w-0 flex-1">
+                            <div className="w-9 h-9 sm:w-11 sm:h-11 rounded-xl sm:rounded-2xl bg-cyan-500/10 border border-cyan-500/30 flex items-center justify-center text-cyan-400 shadow-[0_0_20px_rgba(6,182,212,0.2)] shrink-0 mt-0.5 sm:mt-0">
+                                <Sparkles size={18} className="sm:w-[22px] sm:h-[22px]" />
                             </div>
-                            <div className="min-w-0">
-                                <div className="flex flex-wrap items-center gap-2 mb-0.5">
-                                    <span className="px-2.5 py-0.5 rounded-lg bg-cyan-500/15 border border-cyan-500/30 text-cyan-300 font-mono text-xs font-bold tracking-wide shrink-0">
-                                        {courseCode}
-                                    </span>
+                            <div className="min-w-0 flex-1">
+                                <div className="flex flex-wrap items-center gap-1.5 sm:gap-2 mb-0.5">
+                                    {courseCode && (
+                                        <span className="px-2 py-0.5 rounded-md bg-cyan-500/15 border border-cyan-500/30 text-cyan-300 font-mono text-[10px] sm:text-xs font-bold tracking-wide shrink-0">
+                                            {courseCode}
+                                        </span>
+                                    )}
                                     {isCached && (
-                                        <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-lg bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 font-mono text-[11px] font-medium whitespace-nowrap shrink-0">
-                                            <Database size={11} className="shrink-0" /> Saved in DB
+                                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 font-mono text-[10px] sm:text-[11px] font-medium whitespace-nowrap shrink-0">
+                                            <Database size={10} className="shrink-0" /> Saved
                                         </span>
                                     )}
                                     {pdfUrl && (
-                                        <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-lg bg-cyan-500/15 border border-cyan-500/30 text-cyan-300 font-mono text-[11px] font-medium whitespace-nowrap shrink-0">
-                                            <Sparkles size={11} className="shrink-0 text-cyan-400" /> PDF Grounded
+                                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-cyan-500/15 border border-cyan-500/30 text-cyan-300 font-mono text-[10px] sm:text-[11px] font-medium whitespace-nowrap shrink-0">
+                                            <Sparkles size={10} className="shrink-0 text-cyan-400" /> PDF Grounded
                                         </span>
                                     )}
                                 </div>
-                                <h3 className="text-base sm:text-lg font-bold text-white tracking-tight flex items-center gap-2">
-                                    <span>AI Practice Quiz</span>
-                                    <span className="text-gray-500 text-xs">•</span>
-                                    <span className="text-gray-300 text-xs sm:text-sm font-normal truncate max-w-[200px] sm:max-w-md font-sans">
-                                        {fileTitle}
-                                    </span>
+                                <h3 className="text-sm sm:text-base md:text-lg font-bold text-white tracking-tight truncate">
+                                    AI Practice Quiz
                                 </h3>
+                                <p className="text-[11px] sm:text-xs text-neutral-400 truncate max-w-full font-sans">
+                                    {fileTitle}
+                                </p>
                             </div>
                         </div>
-                        <div className="flex items-center gap-2 self-end sm:self-center shrink-0">
+                        <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
                             <button
                                 onClick={() => fetchQuiz(true)}
                                 disabled={isLoading}
-                                className="p-2 rounded-xl bg-white/5 border border-white/10 text-gray-400 hover:text-cyan-300 hover:bg-white/10 transition-colors text-xs font-mono"
+                                className="p-1.5 sm:p-2 rounded-lg sm:rounded-xl bg-white/5 border border-white/10 text-gray-400 hover:text-cyan-300 hover:bg-white/10 transition-colors text-xs font-mono"
                                 title="Regenerate Quiz"
                             >
                                 <RotateCcw size={15} className={isLoading ? "animate-spin" : ""} />
                             </button>
                             <button
                                 onClick={onClose}
-                                className="p-2 text-gray-400 hover:text-white hover:bg-white/10 rounded-xl transition-colors border border-white/5"
+                                className="p-1.5 sm:p-2 text-gray-400 hover:text-white hover:bg-white/10 rounded-lg sm:rounded-xl transition-colors border border-white/5"
                             >
-                                <X size={18} />
+                                <X size={16} />
                             </button>
                         </div>
                     </div>

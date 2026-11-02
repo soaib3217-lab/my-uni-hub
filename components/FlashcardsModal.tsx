@@ -153,43 +153,45 @@ export default function FlashcardsModal({
                     className="relative w-full max-w-2xl bg-neutral-900 border border-cyan-500/30 rounded-2xl shadow-2xl flex flex-col max-h-[92vh] overflow-hidden"
                 >
                     {/* Header */}
-                    <div className="flex items-center justify-between px-5 py-4 border-b border-white/10 bg-white/[0.02]">
-                        <div className="flex items-center gap-3">
-                            <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-cyan-500/20 to-blue-500/20 border border-cyan-500/40 flex items-center justify-center text-cyan-300">
-                                <Layers size={20} />
+                    <div className="flex items-start sm:items-center justify-between p-3.5 sm:px-5 sm:py-4 border-b border-white/10 bg-white/[0.02] gap-3 shrink-0">
+                        <div className="flex items-start sm:items-center gap-2.5 sm:gap-3 min-w-0 flex-1">
+                            <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl bg-gradient-to-tr from-cyan-500/20 to-blue-500/20 border border-cyan-500/40 flex items-center justify-center text-cyan-300 shrink-0 mt-0.5 sm:mt-0">
+                                <Layers size={18} className="sm:w-5 sm:h-5" />
                             </div>
-                            <div>
-                                <h2 className="text-base sm:text-lg font-bold text-white flex items-center gap-2">
-                                    AI Interactive Flashcards
-                                    <span className="text-[10px] font-semibold tracking-wider uppercase px-2 py-0.5 rounded-full bg-cyan-500/20 text-cyan-300 border border-cyan-500/30">
+                            <div className="min-w-0 flex-1">
+                                <div className="flex flex-wrap items-center gap-1.5 sm:gap-2 mb-0.5">
+                                    <span className="text-[10px] font-semibold tracking-wider uppercase px-2 py-0.5 rounded-full bg-cyan-500/20 text-cyan-300 border border-cyan-500/30 whitespace-nowrap">
                                         Active Recall
                                     </span>
                                     {pdfUrl && (
-                                        <span className="text-[10px] font-semibold tracking-wider uppercase px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                                        <span className="text-[10px] font-semibold tracking-wider uppercase px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 whitespace-nowrap">
                                             PDF Grounded
                                         </span>
                                     )}
+                                </div>
+                                <h2 className="text-sm sm:text-base md:text-lg font-bold text-white tracking-tight truncate">
+                                    AI Interactive Flashcards
                                 </h2>
-                                <p className="text-xs text-neutral-400 truncate max-w-sm sm:max-w-md">
+                                <p className="text-[11px] sm:text-xs text-neutral-400 truncate max-w-full">
                                     {fileTitle} {courseCode && `• ${courseCode}`}
                                 </p>
                             </div>
                         </div>
 
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
                             <button
                                 onClick={() => fetchFlashcards(true)}
                                 title="Regenerate Deck"
                                 disabled={isLoading}
-                                className="p-2 rounded-lg bg-white/5 hover:bg-white/10 text-neutral-400 hover:text-white border border-white/10 transition"
+                                className="p-1.5 sm:p-2 rounded-lg bg-white/5 hover:bg-white/10 text-neutral-400 hover:text-white border border-white/10 transition"
                             >
-                                <RotateCcw size={16} className={isLoading ? "animate-spin" : ""} />
+                                <RotateCcw size={15} className={isLoading ? "animate-spin" : ""} />
                             </button>
                             <button
                                 onClick={onClose}
-                                className="p-2 rounded-lg bg-white/5 hover:bg-white/10 text-neutral-400 hover:text-white border border-white/10 transition"
+                                className="p-1.5 sm:p-2 rounded-lg bg-white/5 hover:bg-white/10 text-neutral-400 hover:text-white border border-white/10 transition"
                             >
-                                <X size={18} />
+                                <X size={16} />
                             </button>
                         </div>
                     </div>
@@ -252,7 +254,7 @@ export default function FlashcardsModal({
                                                 WebkitBackfaceVisibility: "hidden",
                                                 transform: "rotateY(0deg)"
                                             }}
-                                            className="absolute inset-0 bg-gradient-to-br from-neutral-800/90 to-neutral-900/95 border border-cyan-500/30 rounded-2xl p-6 flex flex-col justify-between shadow-2xl"
+                                            className="absolute inset-0 bg-gradient-to-br from-neutral-800/90 to-neutral-900/95 border border-cyan-500/30 rounded-2xl p-4 sm:p-6 flex flex-col justify-between shadow-2xl"
                                         >
                                             <div className="flex items-center justify-between">
                                                 <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded bg-cyan-500/10 text-cyan-300 border border-cyan-500/20">
@@ -286,7 +288,7 @@ export default function FlashcardsModal({
                                                 WebkitBackfaceVisibility: "hidden",
                                                 transform: "rotateY(180deg)"
                                             }}
-                                            className="absolute inset-0 bg-gradient-to-br from-neutral-800/95 to-neutral-900 border border-emerald-500/40 rounded-2xl p-6 flex flex-col justify-between shadow-2xl overflow-y-auto"
+                                            className="absolute inset-0 bg-gradient-to-br from-neutral-800/95 to-neutral-900 border border-emerald-500/40 rounded-2xl p-4 sm:p-6 flex flex-col justify-between shadow-2xl overflow-y-auto"
                                         >
                                             <div className="flex items-center justify-between">
                                                 <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-300 border border-emerald-500/20">
