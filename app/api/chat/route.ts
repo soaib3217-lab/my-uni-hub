@@ -166,7 +166,18 @@ Please provide a clear, helpful academic answer formatted in KaTeX LaTeX ($...$)
 
         // 💎 C. PRIMARY: GOOGLE GEMINI FLASH CASCADE (AUTO OR GEMINI MODE)
         const genAI = getGenAI();
-        const GEMINI_MODELS = ["gemini-2.5-flash", "gemini-flash-latest", "gemini-2.5-flash-lite"];
+        const GEMINI_MODELS = [
+            "gemini-3.5-flash",
+            "gemini-flash-lite-latest",
+            "gemini-2.5-flash"
+        ];
+
+        const formatModelName = (name: string) => {
+            if (name.includes("3.5-flash")) return "Gemini 3.5 Flash";
+            if (name.includes("flash-lite")) return "Gemini Flash Lite";
+            if (name.includes("2.5-flash")) return "Gemini 2.5 Flash";
+            return name;
+        };
 
         if (genAI && modelMode !== "llama") {
             const contentParts: any[] = [];
@@ -184,7 +195,11 @@ Please provide a clear, helpful academic answer formatted in KaTeX LaTeX ($...$)
             for (const modelName of GEMINI_MODELS) {
                 try {
                     const model = genAI.getGenerativeModel({ 
-                        model: modelName
+                        model: modelName,
+                        generationConfig: {
+                            maxOutputTokens: 2048,
+                            temperature: 0.3
+                        }
                     });
 
                     const result = await model.generateContent(contentParts);
@@ -193,8 +208,8 @@ Please provide a clear, helpful academic answer formatted in KaTeX LaTeX ($...$)
 
                     if (text && text.trim().length > 0) {
                         return NextResponse.json({ 
-                            text, 
-                            modelUsed: `${modelName === 'gemini-2.5-flash' ? 'Gemini 2.5 Flash' : modelName}`,
+                            text: text.trim(), 
+                            modelUsed: formatModelName(modelName),
                             provider: "google",
                             pdfAnalyzed: !!pdfData
                         });
@@ -207,9 +222,19 @@ Please provide a clear, helpful academic answer formatted in KaTeX LaTeX ($...$)
 
         // 🛡️ D. AUTOMATIC FALLBACK: OPENROUTER
         console.log("[Chat API] Activating OpenRouter standby fallback...");
+        const fallbackSystem = `${BASE_SYSTEM_INSTRUCTION}
+You are an academic university tutor assisting a student with: "${cleanContext || 'University Course'}" ${cleanCourseCode ? `[${cleanCourseCode}]` : ''}.
+Provide an encouraging, accurate, mathematically sound answer formatted in KaTeX LaTeX ($...$ or $$...$$).`;
+
+        const fallbackUserPrompt = `Subject / Topic: "${cleanContext || 'University Statistics'}" ${cleanCourseCode ? `[${cleanCourseCode}]` : ''}
+${conversationContext}
+Student Question: ${cleanMessage}
+
+Please provide a clear, rigorous explanation with proper mathematical formulas.`;
+
         const fallbackRes = await callOpenRouter([
-            { role: "system", content: systemInstruction },
-            { role: "user", content: prompt }
+            { role: "system", content: fallbackSystem },
+            { role: "user", content: fallbackUserPrompt }
         ], OPENROUTER_FREE_MODEL);
 
         if (fallbackRes.success && fallbackRes.content) {

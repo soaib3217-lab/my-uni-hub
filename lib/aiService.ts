@@ -12,11 +12,9 @@ function getGenAI(): GoogleGenerativeAI | null {
 }
 
 const GEMINI_MODELS = [
-    "gemini-2.5-flash",
     "gemini-3.5-flash",
-    "gemini-flash-latest",
-    "gemini-3.8-flash",
-    "gemini-flash-lite-latest"
+    "gemini-flash-lite-latest",
+    "gemini-2.5-flash"
 ];
 
 async function callGeminiWithFallback(
