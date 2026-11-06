@@ -24,6 +24,8 @@ import QuizModal from '@/components/QuizModal';
 import CheatSheetModal from '@/components/CheatSheetModal';
 import FlashcardsModal from '@/components/FlashcardsModal';
 
+const GUEST_PREVIEW_FILE_LIMIT = 5;
+
 // --- CONFIGURATION ---
 const supabase = createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -223,6 +225,7 @@ export default function Home() {
 
     const [folders, setFolders] = useState<any[]>([]);
     const [files, setFiles] = useState<any[]>([]);
+    const [totalFileCount, setTotalFileCount] = useState(0);
     const [selectedFile, setSelectedFile] = useState<any>(null);
     const [iframeLoading, setIframeLoading] = useState(true);
 
@@ -343,6 +346,10 @@ export default function Home() {
 
     const handleCopyShareLink = (fileId: string, directUrl?: string) => {
         if (typeof window === 'undefined') return;
+        if (!currentUser) {
+            openLoginModal('login');
+            return;
+        }
         const file = files.find(f => f.id === fileId);
         const driveUrl = directUrl || file?.pdf_url;
         const urlToCopy = driveUrl || `${window.location.origin}${window.location.pathname}?file=${fileId}`;
@@ -554,9 +561,12 @@ export default function Home() {
                 setAllowFileDeletion(savedDeleteToggle === 'true');
             }
         } catch {}
-        fetchData();
         attemptAutoLogin();
     }, []);
+
+    useEffect(() => {
+        fetchData();
+    }, [currentUser]);
 
     const handleToggleFileDeletion = () => {
         setAllowFileDeletion(prev => {
@@ -631,7 +641,10 @@ export default function Home() {
                 setShowQuizModal(false);
                 setShowFlashcardsModal(false);
             } else if (event.state?.fileViewer && event.state?.fileId) {
-                if (!currentUser) {
+                const isGuestPreviewFile = files
+                    .slice(0, GUEST_PREVIEW_FILE_LIMIT)
+                    .some(previewFile => previewFile.id === event.state.fileId);
+                if (!currentUser && !isGuestPreviewFile) {
                     setSelectedFile(null);
                     openLoginModal('login');
                     return;
@@ -675,13 +688,6 @@ export default function Home() {
             setShowFlashcardsModal(false);
         }
     }, [selectedFile?.id]);
-
-    // 🔒 Stop Guest Read: ensure guests cannot view PDF documents if logged out
-    useEffect(() => {
-        if (!currentUser && selectedFile) {
-            setSelectedFile(null);
-        }
-    }, [currentUser, selectedFile]);
 
     // --- 🔒 SECURE AI CALLS ---
     async function generateSuggestions(title: string) {
@@ -755,7 +761,15 @@ export default function Home() {
         if (folderData) {
             setFolders(folderData.map((f: any) => ({ ...f, code: (f.code || '').trim() })));
         }
-        const { data: fileData } = await supabase.from('courses').select('*').order('created_at', { ascending: true });
+        let fileQuery = supabase.from('courses').select('*').order('created_at', { ascending: true });
+        if (!currentUser) {
+            fileQuery = fileQuery.limit(GUEST_PREVIEW_FILE_LIMIT);
+        }
+        const [{ data: fileData }, { count: fileCount }] = await Promise.all([
+            fileQuery,
+            supabase.from('courses').select('id', { count: 'exact', head: true })
+        ]);
+        setTotalFileCount(fileCount ?? fileData?.length ?? 0);
         if (fileData) {
             setFiles(fileData.map((f: any) => ({
                 ...f,
@@ -1251,9 +1265,12 @@ export default function Home() {
         setter((prev: string[]) => prev.includes(val) ? prev.filter(x => x !== val) : [...prev, val]);
     };
 
+    const isGuestPreviewFile = (file: any) => files
+        .slice(0, GUEST_PREVIEW_FILE_LIMIT)
+        .some(previewFile => previewFile.id === file.id);
+
     const handleSelectFile = (file: any) => {
-        // 🔒 Stop Guest Read: students must login to view/read PDFs
-        if (!currentUser) {
+        if (!currentUser && !isGuestPreviewFile(file)) {
             openLoginModal('login');
             return;
         }
@@ -1477,7 +1494,8 @@ export default function Home() {
                                 <span className="w-2 h-2 rounded-full bg-cyan-400 animate-ping" />
                                 <div className="leading-tight">
                                     <p className="text-[11px] font-mono font-bold text-cyan-200">Catalog Preview</p>
-                                    <p className="text-[9px] text-gray-400">Login to Read Documents</p>
+                                    <p className="text-[9px] text-gray-400">5 demo documents available</p>
+                                    <p className="text-[9px] text-cyan-300/80">Login to view the rest of the files</p>
                                 </div>
                             </div>
                             <button
@@ -1677,14 +1695,14 @@ export default function Home() {
                     </div>
                 )}
 
-                {selectedFile && !currentUser ? (
+                {selectedFile && !currentUser && !isGuestPreviewFile(selectedFile) ? (
                     <div className="flex-1 flex flex-col items-center justify-center p-6 text-center m-4 bg-[#0a0a0c]/90 backdrop-blur-xl border border-white/10 rounded-2xl shadow-2xl">
                         <div className="w-16 h-16 rounded-2xl bg-amber-500/10 border border-amber-500/30 flex items-center justify-center mb-4 text-amber-400 shadow-[0_0_20px_rgba(245,158,11,0.25)]">
                             <Lock size={30} />
                         </div>
                         <h2 className="text-xl font-bold text-white mb-2">Student Authentication Required</h2>
                         <p className="text-xs text-gray-400 max-w-sm font-mono mb-6 leading-relaxed">
-                            Guest read access is restricted. Please sign in with your Student ID to read and view <span className="text-cyan-300 font-bold">{selectedFile.title}</span>.
+                            This file is available to authenticated students only. Please sign in with your Student ID to read and view <span className="text-cyan-300 font-bold">{selectedFile.title}</span>.
                         </p>
                         <div className="flex items-center gap-3">
                             <button
@@ -2330,7 +2348,7 @@ export default function Home() {
 
                                 <div className="text-xs font-mono text-gray-400 flex items-center gap-2">
                                     <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
-                                    <span>Catalog: {files.length} Documents</span>
+                                    <span>Catalog: {currentUser ? files.length : totalFileCount} Documents</span>
                                 </div>
                             </div>
 
@@ -2362,7 +2380,7 @@ export default function Home() {
                                                     <p className="text-xs font-semibold text-white truncate group-hover:text-cyan-300 transition-colors">{file.title}</p>
                                                     <p className="text-[10px] text-gray-400 font-mono mt-0.5 truncate">{file.course_code || 'General'}</p>
                                                 </div>
-                                                {!currentUser && (
+                                                {!currentUser && !isGuestPreviewFile(file) && (
                                                     <span title="Login to Read" className="inline-flex items-center shrink-0">
                                                         <Lock size={12} className="text-amber-400/80" />
                                                     </span>
@@ -2456,7 +2474,7 @@ export default function Home() {
                                             <div className="flex items-center gap-2 mt-auto z-10">
                                                 <span className="text-[10px] bg-white/10 text-gray-200 px-2.5 py-1 rounded-md border border-white/10 truncate max-w-[50%] font-medium">{file.course_code}</span>
                                                 <span className="text-[10px] bg-white/10 text-gray-200 px-2.5 py-1 rounded-md border border-white/10 truncate max-w-[50%] font-medium">{file.category}</span>
-                                                {!currentUser && (
+                                                {!currentUser && !isGuestPreviewFile(file) && (
                                                     <span className="ml-auto text-[10px] bg-amber-500/10 text-amber-300 border border-amber-500/30 px-2 py-0.5 rounded-md flex items-center gap-1 font-mono font-medium shrink-0">
                                                         <Lock size={10} /> Login to Read
                                                     </span>
@@ -2502,22 +2520,32 @@ export default function Home() {
 
                             {/* ✨ MINIMAL FOOTER LINK ✨ */}
                             <div className="mt-auto pt-6 pb-4 w-full flex justify-center items-center">
-                                <a
-                                    href="https://github.com/soaib3217-lab"
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    title="View Munif's GitHub Profile"
-                                    className="group flex items-center gap-2 px-4 py-1.5 bg-white/5 hover:bg-white/10 active:scale-95 backdrop-blur-xl border border-white/10 hover:border-cyan-400/40 rounded-full shadow-[0_4px_15px_rgba(0,0,0,0.1)] hover:shadow-[0_0_20px_rgba(6,182,212,0.25)] transition-all duration-300 cursor-pointer no-underline"
-                                >
-                                    <Github size={12} className="text-gray-400 group-hover:text-cyan-400 transition-colors" />
-                                    <span className="text-[10px] font-medium tracking-widest text-gray-400 group-hover:text-gray-300 uppercase transition-colors">
-                                        Developed By
-                                    </span>
-                                    <span className="text-[10px] font-black tracking-widest text-white group-hover:text-cyan-300 uppercase transition-colors flex items-center gap-1">
-                                        MUNIF
-                                        <ExternalLink size={10} className="text-gray-500 group-hover:text-cyan-400 opacity-0 group-hover:opacity-100 -translate-x-1 group-hover:translate-x-0 transition-all" />
-                                    </span>
-                                </a>
+                                <div className="flex flex-col items-center gap-2">
+                                    {!currentUser && (
+                                        <button
+                                            onClick={() => openLoginModal('login')}
+                                            className="px-4 py-2 rounded-lg bg-cyan-500/15 hover:bg-cyan-500/25 border border-cyan-400/50 hover:border-cyan-300 text-cyan-300 hover:text-cyan-200 text-[10px] font-mono font-bold tracking-wide shadow-[0_0_16px_rgba(6,182,212,0.2)] hover:shadow-[0_0_22px_rgba(6,182,212,0.35)] transition-all active:scale-95"
+                                        >
+                                            Login to view the rest of the files
+                                        </button>
+                                    )}
+                                    <a
+                                        href="https://github.com/soaib3217-lab"
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        title="View Munif's GitHub Profile"
+                                        className="group flex items-center gap-2 px-4 py-1.5 bg-white/5 hover:bg-white/10 active:scale-95 backdrop-blur-xl border border-white/10 hover:border-cyan-400/40 rounded-full shadow-[0_4px_15px_rgba(0,0,0,0.1)] hover:shadow-[0_0_20px_rgba(6,182,212,0.25)] transition-all duration-300 cursor-pointer no-underline"
+                                    >
+                                        <Github size={12} className="text-gray-400 group-hover:text-cyan-400 transition-colors" />
+                                        <span className="text-[10px] font-medium tracking-widest text-gray-400 group-hover:text-gray-300 uppercase transition-colors">
+                                            Developed By
+                                        </span>
+                                        <span className="text-[10px] font-black tracking-widest text-white group-hover:text-cyan-300 uppercase transition-colors flex items-center gap-1">
+                                            MUNIF
+                                            <ExternalLink size={10} className="text-gray-500 group-hover:text-cyan-400 opacity-0 group-hover:opacity-100 -translate-x-1 group-hover:translate-x-0 transition-all" />
+                                        </span>
+                                    </a>
+                                </div>
                             </div>
 
                         </div>

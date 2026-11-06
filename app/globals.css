@@ -36,7 +36,9 @@ body {
   scrollbar-color: rgba(255, 255, 255, 0.22) transparent;
   -webkit-overflow-scrolling: touch;
   scroll-behavior: smooth;
+  scroll-padding: 0.5rem;
   overscroll-behavior-y: contain;
+  will-change: scroll-position;
 }
 .custom-scrollbar::-webkit-scrollbar {
   width: 6px;
@@ -61,6 +63,7 @@ body {
   scroll-behavior: smooth !important;
   -webkit-overflow-scrolling: touch !important;
   overscroll-behavior: contain !important;
+  will-change: scroll-position;
 }
 
 /* 🌀 Hardware-Accelerated Continuous Spin Animations */
